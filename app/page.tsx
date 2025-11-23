@@ -1,10 +1,23 @@
+"use client";
+import { useEffect, useState } from 'react';
+import { fetchRecipientsFromFirebase } from './_utils/firebase-operations.tsx';
 
 export default function Home() {
+   const [recipients, setRecipients] = useState([]);
+
+      useEffect( () => {
+           fetchRecipientsFromFirebase({userId: '123'})
+           .then(data => {
+               setRecipients(data.data.rawText ? data.data.recipients : []);
+           })
+           .catch(err => console.error('Error fetching recipients:', err.message));
+       }, []);
+       
   return (
      <div className="sm:mt-2 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 ">
      <div className="p-4 sm:ml-64 mt-20">
    <h2 className="text-lg font-semibold">Dashboard</h2>
-   <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+   <p className="mt-2 text-sm text-gray-600">
       Welcome to your dashboard! Here you can manage your account settings, view analytics, and more.
    </p>
    <div className="grid grid-cols-2 gap-4 mb-4 mt-10">
@@ -25,7 +38,7 @@ export default function Home() {
          <div className="flex flex-col items-center justify-center h-24 rounded-sm bg-gray-50 dark:bg-gray-800">
             <p className="self-center text-normal sm:text-xl text-gray-400 dark:text-gray-500">Recepients</p>
             <p className="self-center text-2xl text-gray-400 dark:text-gray-500">
-               0
+               {recipients.length > 0 ? recipients.length : 'Loading...'}
             </p>
          </div>
          <div className="flex flex-col items-center justify-center h-24 rounded-sm bg-gray-50 dark:bg-gray-800">

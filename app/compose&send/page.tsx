@@ -1,9 +1,11 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Eye, PenLine, Send } from 'lucide-react';
+import { fetchRecipientsFromFirebase } from '../_utils/firebase-operations.tsx';
+import {toast, ToastContainer} from 'react-toastify';
 
 export default function Compose () {
-    const [text, setText] = useState('Your message here...');
+  const [text, setText] = useState('Your message here...');
   const [fontSize, setFontSize] = useState('16');
   const [textColor, setTextColor] = useState('#000000');
   const [bgColor, setBgColor] = useState('#ffffff');
@@ -18,15 +20,75 @@ export default function Compose () {
   const [underline, setUnderline] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [htmlContent, setHtmlContent] = useState('')
+  const [recipients, setRecipients] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedRecipients, setSelectedRecipients] = useState([]);
+  const [subject, setSubject] = useState('');
+  const [sendLoading, setSendLoading] = useState(false);
+  const [sendResult, setSendResult] = useState(null);
+  
+       useEffect( () => {
+           fetchRecipientsFromFirebase({userId: '123'})
+           .then(data => {
+              setRecipients(data.data.rawText ? data.data.recipients : []);
+           })
+           .catch(err => console.error('Error fetching recipients:', err.message));
+       }, []);
+
+       const handleChange = (e) => {
+         const q = e.target.value;
+         setSearchQuery(q);
+         if (!q) {
+           setSearchResults([]);
+           return;
+         }
+         const resp = recipients.filter(r => {
+           const email = (r.email || '').toLowerCase();
+           const name = (r.name || '').toLowerCase();
+           return email.includes(q.toLowerCase()) || name.includes(q.toLowerCase());
+         });
+         setSearchResults(resp);
+       }
+
+       const addRecipient = (r) => {
+         if (!r || !r.email) return;
+         setSelectedRecipients(prev => {
+           if (prev.find(p => p.email === r.email)) return prev;
+           return [...prev, r];
+         });
+         setSearchQuery('');
+         setSearchResults([]);
+       }
+
+       const addTypedRecipient = () => {
+         const val = searchQuery.trim();
+         if (!val) return;
+         const newRecipient = { email: val, name: val };
+         addRecipient(newRecipient);
+       }
+
+       const addAllSearchResults = () => {
+         setSelectedRecipients(prev => {
+           const emails = new Set(prev.map(p => p.email));
+           const merged = [...prev];
+           searchResults.forEach(r => {
+             if (!emails.has(r.email)) merged.push(r);
+           });
+           return merged;
+         });
+         setSearchQuery('');
+         setSearchResults([]);
+       }
+
+       const removeSelected = (email) => {
+         setSelectedRecipients(prev => prev.filter(p => p.email !== email));
+       }
 
   useEffect(() => {
-    updateHtml();
-  }, [text, fontSize, textColor, bgColor, alignment, padding, borderWidth, borderColor, borderRadius, fontFamily, bold, italic, underline]);
-
-  const updateHtml = () => {
-    let fontWeight = bold ? 'bold' : 'normal';
-    let fontStyle = italic ? 'italic' : 'normal';
-    let textDecoration = underline ? 'underline' : 'none';
+    const fontWeight = bold ? 'bold' : 'normal';
+    const fontStyle = italic ? 'italic' : 'normal';
+    const textDecoration = underline ? 'underline' : 'none';
 
     const html = `<!DOCTYPE html>
 <html>
@@ -50,9 +112,9 @@ export default function Compose () {
   </table>
 </body>
 </html>`.trim();
-    
-   setHtmlContent(html);
-  };
+
+    setHtmlContent(html);
+  }, [text, fontSize, textColor, bgColor, alignment, padding, borderWidth, borderColor, borderRadius, fontFamily, bold, italic, underline]);
 
   if (showPreview) {
     return (
@@ -79,22 +141,60 @@ export default function Compose () {
     return (
         <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64">
     <div className="sm:grid sm:grid-cols-2 sm:gap-4">
+        <ToastContainer position="top-right" autoClose={7000} hideProgressBar={false} closeOnClick draggable pauseOnHover theme={"light"} />
     <div className="sm:col-span-2 flex flex-row">
         <svg className="w-10 h-10 text-blue-800 dark:text-blue ml-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
         <path stroke="currentColor" strokeLinecap="round" strokeWidth="2" d="m3.5 5.5 7.893 6.036a1 1 0 0 0 1.214 0L20.5 5.5M4 19h16a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1Z"/>
         </svg>
         <div className="ml-6">
         <h2 className="text-lg font-semibold">Compose & Send Campaign</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        <p className="mt-2 text-sm text-gray-600">
             Create your email content and add recipients.
         </p>
         </div>
     </div>
     <div className="sm:col-span-1 mt-4">
-        <input type="text" className="w-full p-2 border border-white rounded-md outline-none" placeholder="Subject" />
+      <input value={subject} onChange={(e) => setSubject(e.target.value)} type="text" className="w-full p-2 border border-white rounded-md outline-none" placeholder="Subject" />
     </div>
     <div className="sm:col-span-1 mt-4">
-        <input type="text" className="w-full p-2 border border-white rounded-md outline-none" placeholder="Recipient Email" />
+      <label className="block text-sm font-medium text-gray-700 mb-2">Recipients</label>
+      <div className="relative">
+        <div className="flex flex-wrap items-center gap-2 p-2 border border-white rounded-md bg-white">
+          {selectedRecipients.map((r) => (
+            <span key={r.email} className="flex items-center bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm max-w-[170px] truncate">
+              <span className="truncate mr-2">{r.name || r.email}</span>
+              <button onClick={() => removeSelected(r.email)} className="ml-1 text-xs text-gray-500 hover:text-gray-700">✕</button>
+            </span>
+          ))}
+
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={handleChange}
+            placeholder="Search email"
+            className="flex-1 min-w-[140px] outline-none px-2 py-1 bg-transparent"
+          />
+
+          {searchQuery && searchResults.length === 0 && (
+            <button onClick={addTypedRecipient} title="Add typed recipient" className="ml-2 px-2 py-1 bg-green-500 text-white rounded hover:scale-95 cursor-pointer">✓</button>
+          )}
+        </div>
+
+        {searchResults.length > 0 && (
+          <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md z-20 max-h-40 overflow-y-auto">
+            <button onClick={addAllSearchResults} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100">All of the above</button>
+            {searchResults.map((recipient, index) => (
+              <button
+                key={recipient.email || index}
+                onClick={() => addRecipient(recipient)}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 truncate"
+              >
+                {recipient.name ? `${recipient.name} — ${recipient.email}` : recipient.email}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
    {/*<div className="col-span-2 mt-4"><textarea className="w-full p-2 border border-gray-300 rounded-md" rows={6} placeholder="Type your message here..."></textarea></div>*/}
 
@@ -298,7 +398,31 @@ export default function Compose () {
       </div>
     
     <div className="sm:col-span-2 mt-4">
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex"><Send className='mr-4' /> Send Bulk Email Campaign</button>
+        <button onClick={async () => {
+            try{
+              setSendLoading(true);
+              const toSend = selectedRecipients.length > 0 ? selectedRecipients : recipients;
+              const payload = { userId: '123', subject: subject || '', html: htmlContent, recipients: toSend };
+              const res = await fetch('/api/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              const data = await res.json();
+              setSendResult(data);
+              if(data.code === 777){
+                toast.success('Send completed');
+              } else {
+                toast.error('Error: ' + (data.message || JSON.stringify(data)));
+              }
+            }catch(err){
+              toast.error('Error: ' + err.message);
+            }finally{
+              setSendLoading(false);
+            }
+        }} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2">
+          {sendLoading ? 'Sending...' : (<><Send className='mr-2'/> Send Bulk Email Campaign</>)}
+        </button>
     </div>
     </div>
         </div>

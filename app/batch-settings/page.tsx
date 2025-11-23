@@ -12,12 +12,11 @@ const saveBatchSettings = async () => {
   try{
     setIsLoading(true)
     const response = await uploadBatchSettingsToFirebase({userId: '12', batchsize: batchSize.toString(), batchdelay: delayBetweenBatches.toString()});
-    console.log(response)
-    if(response.code === 777){
+    if(response.code == 777){
       toast.success(response.message);
       setIsLoading(false);
     }
-    if(response.code === 101){
+    if(response.code == 101){
       toast.error(response.message);
       setIsLoading(false);
     }
