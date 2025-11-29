@@ -11,11 +11,7 @@ interface Recipient {
   email: string;
 }
 
-interface SendResult {
-  recipients: Recipient[];
-  totalCount: number;
-  rawText: string;
-}
+// (no longer storing send result in component state)
 
 
 export default function Compose () {
@@ -35,25 +31,25 @@ export default function Compose () {
   const [showPreview, setShowPreview] = useState(false);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [recipientsLoading, setRecipientsLoading] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchResults, setSearchResults] = useState<Recipient[]>([]);
   const [selectedRecipients, setSelectedRecipients] = useState<Recipient[]>([]);
   const [subject, setSubject] = useState<string>('');
   const [sendLoading, setSendLoading] = useState<boolean>(false);
-  const [sendResult, setSendResult] = useState<SendResult | null>(null);
   const { user } = useUser();
   
        useEffect( () => {
-           fetchRecipientsFromFirebase({userId: user?.uid as string})
-           .then(data => {
-              if (data && data.data && data.data.rawText) {
-                setRecipients(data.data.recipients);
-              } else {
-                setRecipients([]);
-              }
-           })
-          .catch(err => console.error('Error fetching recipients:', err instanceof Error ? err.message : String(err)));
-       }, []);
+           const uid = user?.uid;
+           if (!uid) return;
+           setRecipientsLoading(true);
+           fetchRecipientsFromFirebase({ userId: uid })
+             .then((data) => {
+               setRecipients(data?.data?.recipients ?? []);
+             })
+             .catch((err) => console.error('Error fetching recipients:', err instanceof Error ? err.message : String(err)))
+             .finally(() => setRecipientsLoading(false));
+         }, [user?.uid]);
 
        const handleChange = (e : React.ChangeEvent<HTMLInputElement>) => {
          const q = e.target.value;
@@ -198,6 +194,10 @@ export default function Compose () {
           {searchQuery && searchResults.length === 0 && (
             <button onClick={addTypedRecipient} title="Add typed recipient" className="ml-2 px-2 py-1 bg-green-500 text-white rounded hover:scale-95 cursor-pointer">✓</button>
           )}
+        
+        {recipientsLoading && searchQuery && (
+          <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md z-20 max-h-40 overflow-y-auto px-3 py-2 text-sm">Loading recipients…</div>
+        )}
         </div>
 
         {searchResults.length > 0 && (
@@ -422,25 +422,35 @@ export default function Compose () {
             try{
               setSendLoading(true);
               const toSend = selectedRecipients.length > 0 ? selectedRecipients : recipients;
-              const payload = { userId: '123', subject: subject || '', html: htmlContent, recipients: toSend };
+              const payload = { userId: user?.uid , subject: subject || '', html: htmlContent, recipients: toSend };
               const res = await fetch('/api/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
               });
-              const data = await res.json();
-              setSendResult(data);
-              if(data.code === 777){
-                toast.success('Send completed');
+              // Defensive parsing: server might return HTML (errors) so check content-type
+              const contentType = res.headers.get('content-type') || '';
+              if (contentType.includes('application/json')) {
+                const data = await res.json();
+                if (data.code === 777) {
+                  toast.success('Send completed');
+                } else {
+                  toast.error('Error: ' + (data.message || JSON.stringify(data)));
+                }
               } else {
-                toast.error('Error: ' + (data.message || JSON.stringify(data)));
+                // Not JSON — read text and surface helpful message
+                  const bodyText = await res.text();
+                  // log the response for debugging (truncated)
+                  console.error('Send API returned non-JSON response:', res.status, res.statusText, bodyText.slice(0, 200));
+                  // toast.error expects a single argument; provide a concise message here
+                  toast.error(`Send failed: check your API configuration and try again. Status ${res.status} ${res.statusText}`);
               }
             }catch(err){
               toast.error('Error: ' + (err instanceof Error ? err.message : String(err)));
             }finally{
               setSendLoading(false);
             }
-        }} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2">
+        }} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 cursor-pointer">
           {sendLoading ? 'Sending...' : (<><Send className='mr-2'/> Send Bulk Email Campaign</>)}
         </button>
     </div>

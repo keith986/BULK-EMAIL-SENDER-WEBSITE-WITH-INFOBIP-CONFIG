@@ -74,15 +74,24 @@ const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       });
 
       if (result.code === 777) {
-        setTimeout(() => setIsLoading(false), 3000);
-        toast.success(result.message);
-        const id_recepients = document.getElementById('recipients');
-        if (id_recepients) {
-          const ta = id_recepients as HTMLTextAreaElement;
-          ta.value = '';
+        // Give immediate feedback about how many were added (if helper returned count)
+        const added = typeof result.added === 'number' ? result.added : undefined;
+        if (added === 0) {
+          toast.info('No new recipients were added — all entries are duplicates of existing records.');
+        } else if (added && added > 0) {
+          toast.success(`${added} new recipient(s) added.`);
+          // clear inputs only when we actually added recipients
+          const id_recepients = document.getElementById('recipients');
+          if (id_recepients) {
+            const ta = id_recepients as HTMLTextAreaElement;
+            ta.value = '';
+          }
           setRecipientText('');
           setRecipients([]);
           setTotalEmails(0);
+        } else {
+          // fallback to generic message
+          toast.success(result.message);
         }
       } else {
         toast.error('Error: ' + result.message);

@@ -3,13 +3,20 @@ import Protected from '../_components/Protected';
 import { useState } from 'react';
 import { CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 
+type CampaignResult = {
+  email: string;
+  status: string;
+  message?: string;
+  batchIndex: number;
+};
+
 export default function CampaignHistory() {
     // Campaign results state
-const [results, setResults] = useState([]);
-const [sentCount, setSentCount] = useState(0);
-const [successCount, setSuccessCount] = useState(0);
-const [failedCount, setFailedCount] = useState(0);
-const [totalEmails, setTotalEmails] = useState(0);
+const [results] = useState<CampaignResult[]>([]);
+const [sentCount] = useState(0);
+const [successCount] = useState(0);
+const [failedCount] = useState(0);
+const [totalEmails] = useState(0);
     return (
       <Protected>
         <div className='sm:mt-21 mt-5 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64 sm:ml-60 '>
@@ -81,7 +88,7 @@ const [totalEmails, setTotalEmails] = useState(0);
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {results.map((result, index) => (
+                {results.map((result: CampaignResult, index: number) => (
                   <tr key={index} className="hover:bg-gray-50">
                     {/* Email Address */}
                     <td className="px-4 py-3 text-sm text-gray-800">

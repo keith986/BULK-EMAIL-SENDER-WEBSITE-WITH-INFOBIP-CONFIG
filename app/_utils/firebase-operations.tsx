@@ -144,7 +144,7 @@ export const uploadRecipientsToFirebase = async ({
   recipients: Array<{name: string, email: string}>, 
   totalCount: number, 
   rawText: string
-}): Promise<{code: number, message: string}> => {
+}): Promise<{code: number, message: string, added?: number}> => {
   try {
     // Check if userId already exists
     const q = query(collection(db, COLLECTION_RECIPIENTS_NAME), where('userId', '==', userId));
@@ -152,16 +152,41 @@ export const uploadRecipientsToFirebase = async ({
     const querySnapshot = await getDocs(q);
     
     if (!querySnapshot.empty) {
-      // User already exists, update the existing document
+      // User already exists, merge with existing recipients and avoid duplicates
       const existingDoc = querySnapshot.docs[0];
+      const data = existingDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
+      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
+
+      // Normalize incoming recipients and remove any without email
+      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ name: r.name ?? '', email: String(r.email).trim() })) : [];
+
+      // Build map of lowercased existing emails
+      const existingMap = new Map<string, { name?: string; email: string }>();
+      for (const r of existingList) {
+        if (!r?.email) continue;
+        existingMap.set(String(r.email).toLowerCase(), { name: r.name, email: String(r.email) });
+      }
+
+      // Count new additions and merge
+      let addedCount = 0;
+      for (const inc of incoming) {
+        const key = inc.email.toLowerCase();
+        if (!existingMap.has(key)) {
+          existingMap.set(key, { name: inc.name || '', email: inc.email });
+          addedCount++;
+        }
+      }
+
+      const merged = Array.from(existingMap.values());
+
       await updateDoc(doc(db, COLLECTION_RECIPIENTS_NAME, existingDoc.id), {
-        recipients: recipients,
-        totalCount: totalCount,
-        rawText: rawText,
+        recipients: merged,
+        totalCount: merged.length,
+        rawText: merged.map(r => r.email).join('\n'),
         updatedAt: serverTimestamp()
       });
-      
-      return { code: 777, message: 'Recipients list has been updated successfully.' };
+
+      return { code: 777, message: `Recipients updated — ${addedCount} new added.`, added: addedCount };
     } else {
       // User doesn't exist, create new document
       const recipientsData = {
@@ -173,7 +198,7 @@ export const uploadRecipientsToFirebase = async ({
         updatedAt: serverTimestamp()
       };
       await addDoc(collection(db, COLLECTION_RECIPIENTS_NAME), recipientsData);
-      return { code: 777, message: 'Recipients list has been saved successfully.' };
+      return { code: 777, message: 'Recipients list has been saved successfully.', added: recipientsData.recipients?.length ?? 0 };
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -214,6 +239,67 @@ export const fetchRecipientsFromFirebase = async ({userId}: {userId: string}): P
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('fetchRecipientsFromFirebase error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Remove a recipient from a user's recipients document by email
+export const removeRecipientFromFirebase = async ({ userId, email }: { userId: string; email: string }): Promise<{ code: number; message: string }> => {
+  try {
+    const q = query(collection(db, COLLECTION_RECIPIENTS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) return { code: 404, message: 'No recipients document found for user.' };
+
+    const recipientsDoc = querySnapshot.docs[0];
+    const data = recipientsDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
+    const rawList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
+    const existing: Array<{ name?: string; email: string }> = rawList.filter(r => r.email).map(r => ({ name: r.name, email: r.email! }));
+
+    const filtered = existing.filter(r => String(r.email).toLowerCase() !== String(email).toLowerCase());
+
+    await updateDoc(doc(db, COLLECTION_RECIPIENTS_NAME, recipientsDoc.id), {
+      recipients: filtered,
+      totalCount: filtered.length,
+      rawText: filtered.map(r => (r.email ? r.email : '')).join('\n'),
+      updatedAt: serverTimestamp()
+    });
+
+    return { code: 777, message: 'Recipient removed.' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('removeRecipientFromFirebase error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Remove multiple recipients by email from a user's recipients document
+export const removeRecipientsFromFirebase = async ({ userId, emails }: { userId: string; emails: string[] }): Promise<{ code: number; message: string }> => {
+  try {
+    const q = query(collection(db, COLLECTION_RECIPIENTS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) return { code: 404, message: 'No recipients document found for user.' };
+
+    const recipientsDoc = querySnapshot.docs[0];
+    const data = recipientsDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
+    const rawList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
+    const existing: Array<{ name?: string; email: string }> = rawList.filter(r => r.email).map(r => ({ name: r.name, email: r.email! }));
+
+    const emailsSet = new Set(emails.map(e => String(e).toLowerCase()));
+    const filtered = existing.filter(r => !emailsSet.has(String(r.email).toLowerCase()));
+
+    await updateDoc(doc(db, COLLECTION_RECIPIENTS_NAME, recipientsDoc.id), {
+      recipients: filtered,
+      totalCount: filtered.length,
+      rawText: filtered.map(r => (r.email ? r.email : '')).join('\n'),
+      updatedAt: serverTimestamp()
+    });
+
+    return { code: 777, message: `${emails.length} recipient(s) removed.` };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('removeRecipientsFromFirebase error:', error);
     return { code: 101, message };
   }
 }
