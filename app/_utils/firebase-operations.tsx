@@ -7,6 +7,7 @@ import { hashPassword, verifyPassword } from './hash-password';
 const COLLECTION_API_NAME = "apikeys";
 const COLLECTION_BATCH_NAME = "batchsettings";
 const COLLECTION_RECIPIENTS_NAME = "recipients";
+const COLLECTION_CAMPAIGNS_NAME = "campaigns";
 const COLLECTIONS_CLIENTS = "clients";
 
 // Represent the stored hashed password format we save in Firestore
@@ -243,6 +244,53 @@ export const fetchRecipientsFromFirebase = async ({userId}: {userId: string}): P
   }
 }
 
+// Fetch campaign history for a user
+export const fetchCampaignsFromFirebase = async ({ userId }: { userId: string }): Promise<{
+  code: number;
+  data?: Array<{
+    id: string;
+    userId: string;
+    subject?: string;
+    recipientsCount?: number;
+    results?: Array<Record<string, unknown>>;
+    stats?: { total?: number; sent?: number; failed?: number };
+    createdAt?: { seconds?: number } | string;
+  }>;
+  message: string;
+}> => {
+  try {
+    const q = query(collection(db, COLLECTION_CAMPAIGNS_NAME), where('userId', '==', userId));
+    const snap = await getDocs(q);
+    if (snap.empty) return { code: 404, message: 'No campaigns found for this user.' };
+
+    const campaigns = snap.docs.map(d => {
+      const raw = d.data() as { subject?: string; recipientsCount?: number; results?: Array<Record<string, unknown>>; stats?: { total?: number; sent?: number; failed?: number }; createdAt?: { seconds?: number } | string; userId?: string };
+      return { id: d.id, userId: raw.userId ?? userId, subject: raw.subject, recipientsCount: raw.recipientsCount, results: raw.results, stats: raw.stats, createdAt: raw.createdAt };
+    });
+    // sort by createdAt descending if present
+    campaigns.sort((a, b) => {
+      const getTimestamp = (t: { seconds?: number } | string | undefined) => {
+        if (!t) return 0;
+        if (typeof t === 'object') {
+          const seconds = (t as { seconds?: number }).seconds;
+          if (typeof seconds === 'number') return seconds;
+        }
+        const ms = Date.parse(String(t));
+        return isNaN(ms) ? 0 : Math.floor(ms / 1000);
+      };
+      const ta = getTimestamp(a.createdAt);
+      const tb = getTimestamp(b.createdAt);
+      return tb - ta;
+    });
+
+    return { code: 777, data: campaigns, message: 'Campaigns fetched.' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('fetchCampaignsFromFirebase error:', error);
+    return { code: 101, message };
+  }
+};
+
 // Remove a recipient from a user's recipients document by email
 export const removeRecipientFromFirebase = async ({ userId, email }: { userId: string; email: string }): Promise<{ code: number; message: string }> => {
   try {
@@ -352,6 +400,34 @@ export const signUpWithGoogleAccount = async () : Promise<{code: number, message
     const errorCode = (error as { code?: string } | undefined)?.code ?? null;
     console.error('signUpWithGoogleAccount error:', error);
     return { code: 101, message, errorCode };
+  }
+}
+
+// Update client profile (displayName and optional password)
+export const updateClientProfile = async ({ userId, displayName, password }: { userId: string; displayName?: string | null; password?: string | null }): Promise<{ code: number; message: string }> => {
+  try {
+    if (!userId) return { code: 400, message: 'Missing userId' };
+
+    const updates: Record<string, unknown> = {};
+    if (typeof displayName === 'string') updates.displayName = displayName;
+
+    // If a raw password is provided, hash it before storing
+    if (typeof password === 'string' && password.length > 0) {
+      const hashed = await hashPassword(password);
+      updates.hashedPassword = hashed;
+    }
+
+    // Set updatedAt timestamp
+    updates.updatedAt = serverTimestamp();
+
+    // Use setDoc with merge so we don't overwrite other fields accidentally
+    await setDoc(doc(db, COLLECTIONS_CLIENTS, userId), updates, { merge: true });
+
+    return { code: 777, message: 'Profile updated successfully.' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('updateClientProfile error:', error);
+    return { code: 101, message };
   }
 }
 

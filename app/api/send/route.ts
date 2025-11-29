@@ -80,6 +80,27 @@ export async function POST(req: Request) {
       }
     }
 
+    // Persist campaign history to Firestore so users can review later
+    try {
+      const campaignDoc = {
+        userId,
+        subject,
+        recipientsCount: recipients.length,
+        results,
+        stats: {
+          total: recipients.length,
+          sent: results.filter((r) => String(r.status) === 'sent').length,
+          failed: results.filter((r) => String(r.status) !== 'sent').length,
+        },
+        createdAt: new Date().toISOString(),
+      };
+      // write to campaigns collection
+      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
+      await addDoc(collection(db, 'campaigns'), { ...campaignDoc, createdAt: serverTimestamp() });
+    } catch (saveErr) {
+      console.error('Failed to save campaign history:', saveErr);
+    }
+
     return NextResponse.json({ code: 777, message: 'Batch send completed', results });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

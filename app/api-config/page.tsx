@@ -1,7 +1,7 @@
 "use client";
 import Protected from '../_components/Protected';
 import { useState } from "react";
-import { CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { CheckCircle, AlertCircle, Eye } from "lucide-react";
 import { toast, ToastContainer } from 'react-toastify';
 import {uploadApiDataToFirebase} from '../_utils/firebase-operations'
 import { useUser } from '../_context/UserProvider';
