@@ -1,17 +1,20 @@
 "use client";
+import Protected from '../_components/Protected';
 import { useState } from "react";
-import { uploadBatchSettingsToFirebase } from '../_utils/firebase-operations.tsx';
+import { uploadBatchSettingsToFirebase } from '../_utils/firebase-operations';
 import { toast, ToastContainer } from 'react-toastify';
+import { useUser } from '../_context/UserProvider';
 
 export default function BatchSettings() {
 const [batchSize, setBatchSize] = useState(10);
 const [delayBetweenBatches, setDelayBetweenBatches] = useState(1000);
-const [isloading, setIsLoading] = useState(false);
+const [isLoading, setIsLoading] = useState(false);
+const { user } = useUser();
 
 const saveBatchSettings = async () => {
   try{
     setIsLoading(true)
-    const response = await uploadBatchSettingsToFirebase({userId: '12', batchsize: batchSize.toString(), batchdelay: delayBetweenBatches.toString()});
+    const response = await uploadBatchSettingsToFirebase({userId: user?.uid as string, batchsize: batchSize.toString(), batchdelay: delayBetweenBatches.toString()});
     if(response.code == 777){
       toast.success(response.message);
       setIsLoading(false);
@@ -21,12 +24,13 @@ const saveBatchSettings = async () => {
       setIsLoading(false);
     }
   }catch(error){
-    toast.error('Connection error: ' + error.message);
+    toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
     setIsLoading(false);
   }
 }
 
     return (
+      <Protected>
         <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64 mt-5">
         <div className="max-w-4xl mx-auto">
     <div className="bg-gradient-to-br from-white to-slate-200 rounded-xl p-8">
@@ -95,10 +99,10 @@ const saveBatchSettings = async () => {
               <div className="mt-4">
                 <button
                   onClick={saveBatchSettings}
-                  disabled={isloading}
+                  disabled={isLoading}
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
                 >
-                  {isloading ? (
+                  {isLoading ? (
                     <span>Loading...</span>
                   ) : (
                     <span>Save</span>
@@ -111,5 +115,6 @@ const saveBatchSettings = async () => {
     </div>
   </div>
         </div>
+      </Protected>
     );
 }

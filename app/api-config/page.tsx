@@ -1,24 +1,23 @@
 "use client";
+import Protected from '../_components/Protected';
 import { useState } from "react";
 import { CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { toast, ToastContainer } from 'react-toastify';
-import {uploadApiDataToFirebase} from '../_utils/firebase-operations.tsx'
+import {uploadApiDataToFirebase} from '../_utils/firebase-operations'
+import { useUser } from '../_context/UserProvider';
 
 export default function ApiConfigPage(){
     // API Configuration state
 const [apiKey, setApiKey] = useState('');
 const [baseUrl, setBaseUrl] = useState('https://api.infobip.com');
 const [loading, setLoading] = useState(false);
-const [isloading, setIsLoading] = useState(false);
+const [isLoading, setIsLoading] = useState(false);
+const { user } = useUser();
 
 const handleToggleEye = () => {
-  const toggleeye = document.getElementById('eyelid')
-
-  if (toggleeye.type === 'password') {
-    toggleeye.type = 'text';
-  } else {
-    toggleeye.type = 'password';
-  }
+  const toggleeye = document.getElementById('eyelid') as HTMLInputElement | null;
+  if (!toggleeye) return;
+  toggleeye.type = toggleeye.type === 'password' ? 'text' : 'password';
 }
 
 
@@ -47,18 +46,19 @@ const testConnection = async () => {
       setLoading(false);
     }
   } catch (error) {
-    toast.error('Connection error: ' + error.message);
+    toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
     setLoading(false);
   }
 };
 
 const saveApiKey = async () => {
-  if(apiKey ==- null){
-    toast.info("Api Key is required!")
-  }else{
+  if (!apiKey) {
+    toast.info("Api Key is required!");
+    return;
+  } else {
   try{
     setIsLoading(true)
-    const response = await uploadApiDataToFirebase({userId: '12', apiKey: apiKey});
+    const response = await uploadApiDataToFirebase({userId: user?.uid as string, apiKey: apiKey});
     if(response.code == 777){
       toast.success(response.message);
       setIsLoading(false);
@@ -68,7 +68,7 @@ const saveApiKey = async () => {
       setIsLoading(false);
     }
   }catch(error){
-    toast.error('Connection error: ' + error.message);
+    toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
     setIsLoading(false);
   }
 }
@@ -76,7 +76,8 @@ const saveApiKey = async () => {
 
 
   return (
-  <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64 mt-5">
+    <Protected>
+      <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64 mt-5">
   <div className="max-w-4xl mx-auto">
     <div className="bg-gradient-to-br from-white to-slate-200 rounded-lg p-8">
       <h2 className="text-2xl font-bold text-gray-800 mb-6">API Configuration</h2>
@@ -123,10 +124,10 @@ const saveApiKey = async () => {
             <div className="mt-4">
                 <button
                   onClick={saveApiKey}
-                  disabled={isloading}
+                  disabled={isLoading}
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer"
                 >
-                  {isloading ? (
+                  {isLoading ? (
                     <span>Loading...</span>
                   ) : (
                     <span>Save</span>
@@ -191,5 +192,6 @@ const saveApiKey = async () => {
     </div>
   </div>
         </div>
-    );
+      </Protected>
+      );
 }

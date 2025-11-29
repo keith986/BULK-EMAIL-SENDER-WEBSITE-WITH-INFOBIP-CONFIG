@@ -1,4 +1,5 @@
 "use client";
+import Protected from '../_components/Protected';
 import { useState } from 'react';
 import { CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -10,6 +11,7 @@ const [successCount, setSuccessCount] = useState(0);
 const [failedCount, setFailedCount] = useState(0);
 const [totalEmails, setTotalEmails] = useState(0);
     return (
+      <Protected>
         <div className='sm:mt-21 mt-5 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64 sm:ml-60 '>
   <div className="max-w-7xl mx-auto sm:mr-10 sm:ml-10">
     <div className="bg-gradient-to-br from-white to-slate-200 rounded-xl p-8">
@@ -121,5 +123,6 @@ const [totalEmails, setTotalEmails] = useState(0);
     </div>
   </div>
         </div>
+      </Protected>
     );
 }

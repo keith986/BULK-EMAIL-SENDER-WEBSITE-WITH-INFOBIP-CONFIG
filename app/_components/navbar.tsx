@@ -1,6 +1,22 @@
 "use client";
+import { usePathname, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useUser } from '../_context/UserProvider';
 
 export default function Navbar() {
+  const pathname = usePathname();
+  const { user, loading, signOut } = useUser();
+  const router = useRouter();
+
+  // Don't show the global navbar on the public landing page or public marketing routes
+  if (
+    pathname === '/' ||
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/about') ||
+    pathname.startsWith('/services') || 
+    pathname.startsWith('/pricing') ||
+    pathname.startsWith('/contact')
+  ) return null;
 
   const handleDropDown = () => {
     const dropdown = document.getElementById('user-dropdown');
@@ -20,7 +36,7 @@ export default function Navbar() {
    <div>
 <nav className="bg-gradient-to-r from-slate-900 to-blue-900 border-none shadow-lg dark:bg-gray-900 fixed w-full z-20 top-0 left-0 border-b dark:border-gray-600">
   <div className="max-w-screen-xl flex flex-wrap items-center justify-between mx-auto p-4">
-  <a href="https://flowbite.com/" className="flex items-center space-x-3 rtl:space-x-reverse">
+  <Link href="/" className="flex items-center space-x-3 rtl:space-x-reverse">
       <svg className="w-6 h-6 text-white dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
       <path stroke="currentColor" strokeLinecap="round" strokeWidth="2" d="m3.5 5.5 7.893 6.036a1 1 0 0 0 1.214 0L20.5 5.5M4 19h16a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1Z"/>
       </svg>
@@ -28,19 +44,21 @@ export default function Navbar() {
         <span className="text-2xl font-semibold whitespace-nowrap text-white dark:text-white">Bulky</span>
         <span className="text-sm font-semibold whitespace-nowrap text-white dark:text-white hidden md:block">Professional Email Campaign Manager</span>
       </div>
-  </a> 
+  </Link>
   <div className="flex items-center md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse">
-      <button type="button" className="flex text-sm bg-gray-800 rounded-full md:me-0 focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600" id="user-menu-button" onClick={handleDropDown}>
-        <img className="w-8 h-8 rounded-full" src="/docs/images/people/profile-picture-3.jpg" alt="user photo" />
+      <button type="button" className="flex text-sm bg-gray-800 rounded-full w-10 h-10 justify-center items-center md:me-0 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-100" id="user-menu-button" onClick={handleDropDown}>
+        <span className='text-white dark:text-white text-xl'>
+          {loading ? '…' : user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() ?? '...')}
+        </span>
       </button>
       <div className="z-50 hidden my-4 absolute md:top-10 top-10 right-10 text-base list-none bg-white divide-y divide-gray-100 rounded-lg shadow-sm dark:bg-gray-700 dark:divide-gray-600" id="user-dropdown">
         <div className="px-4 py-3">
-          <span className="block text-sm text-gray-900 dark:text-white">Bonnie Green</span>
-          <span className="block text-sm  text-gray-500 truncate dark:text-gray-400">name@flowbite.com</span>
+          <span className="block text-sm text-gray-900 dark:text-white">{user?.displayName ?? 'anonymous'}</span>
+          <span className="block text-sm  text-gray-500 truncate dark:text-gray-400">{user?.email ?? '—'}</span>
         </div>
         <ul className="py-2" aria-labelledby="user-menu-button">
           <li>
-            <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 dark:hover:text-white">Dashboard</a>
+            <Link href="/dashboard" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 dark:hover:text-white">Dashboard</Link>
           </li>
           <li>
             <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 dark:hover:text-white">Settings</a>
@@ -49,7 +67,7 @@ export default function Navbar() {
             <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 dark:hover:text-white">Earnings</a>
           </li>
           <li>
-            <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 dark:hover:text-white">Sign out</a>
+            <button onClick={async () => { await signOut(); router.push('/'); }} className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 dark:text-gray-200 dark:hover:text-white">Sign out</button>
           </li>
         </ul>
       </div>
@@ -62,19 +80,19 @@ export default function Navbar() {
   <div className="items-center justify-between hidden w-full md:flex md:w-auto md:order-1" id="navbar-user">
     <ul className="flex flex-col font-medium p-4 md:p-0 mt-4  md:space-x-8 rtl:space-x-reverse md:flex-row md:mt-0">
       <li>
-        <a href="#" className="block py-2 px-3 text-white bg-blue-700 rounded-sm md:bg-transparent md:text-gray-100 md:p-0 md:dark:text-gray-100" aria-current="page">Home</a>
+        <Link href="/" className="block py-2 px-3 text-white bg-blue-700 rounded-sm md:bg-transparent md:text-gray-100 md:p-0 md:dark:text-gray-100" aria-current="page">Home</Link>
       </li>
       <li>
-        <a href="#" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">About</a>
+        <Link href="/about" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">About</Link>
       </li>
       <li>
-        <a href="#" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">Services</a>
+        <Link href="/services" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">Services</Link>
       </li>
       <li>
-        <a href="#" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">Pricing</a>
+        <Link href="/pricing" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">Pricing</Link>
       </li>
       <li>
-        <a href="#" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">Contact</a>
+        <Link href="/contact" className="block py-2 px-3 text-gray-400 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:hover:text-gray-100 md:p-0 dark:text-white md:dark:hover:text-gray-100 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent dark:border-gray-700">Contact</Link>
       </li>
     </ul>
   </div>

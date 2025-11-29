@@ -1,24 +1,32 @@
 "use client";
+import Protected from '../_components/Protected';
 import { useState, useRef } from "react";
 import { Upload } from "lucide-react";
-import { uploadRecipientsToFirebase } from '../_utils/firebase-operations.tsx';
+import { uploadRecipientsToFirebase } from '../_utils/firebase-operations';
 import { toast, ToastContainer } from "react-toastify";
+import { useUser } from '../_context/UserProvider';
+
+interface Recipient {
+  name: string;
+  email: string;
+}
 
 export default function AddRecipients() {
     // State variables
-const [recipients, setRecipients] = useState([]);
+const [recipients, setRecipients] = useState<Recipient[]>([]);
 const [recipientText, setRecipientText] = useState('');
 const [totalEmails, setTotalEmails] = useState(0);
-const fileInputRef = useRef(null);
+const fileInputRef = useRef<HTMLInputElement | null>(null);
 const [isLoading, setIsLoading] = useState(false);
+const { user } = useUser();
 
 // Parse recipients from text
-const parseRecipients = (text) => {
+const parseRecipients = (text: string): Recipient[] => {
   return text
     .split('\n')
-    .map(line => line.trim())
-    .filter(line => line && line.includes('@'))
-    .map(line => {
+    .map((line: string) => line.trim())
+    .filter((line: string) => line && line.includes('@'))
+    .map((line: string) => {
       const parts = line.split(',');
       if (parts.length >= 2) {
         return { name: parts[0].trim(), email: parts[1].trim() };
@@ -28,7 +36,7 @@ const parseRecipients = (text) => {
 };
 
 // Handle text change in textarea
-const handleTextChange = (text) => {
+const handleTextChange = (text: string) => {
   setRecipientText(text);
   const parsed = parseRecipients(text);
   setRecipients(parsed);
@@ -36,12 +44,12 @@ const handleTextChange = (text) => {
 };
 
 // Handle CSV file upload
-const handleFileUpload = (e) => {
-  const file = e.target.files[0];
+const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = (event) => {
-    const text = event.target.result;
+  reader.onload = (event: ProgressEvent<FileReader>) => {
+    const text = String(event.target?.result ?? '');
     setRecipientText(text);
     const parsed = parseRecipients(text);
     setRecipients(parsed);
@@ -59,7 +67,7 @@ const handleFileUpload = (e) => {
     setIsLoading(true);
     try {
       const result = await uploadRecipientsToFirebase({
-        userId: '123',
+        userId: user?.uid as string,
         recipients: recipients,
         totalCount: recipients.length,
         rawText: recipientText
@@ -70,7 +78,8 @@ const handleFileUpload = (e) => {
         toast.success(result.message);
         const id_recepients = document.getElementById('recipients');
         if (id_recepients) {
-          id_recepients.value = '';
+          const ta = id_recepients as HTMLTextAreaElement;
+          ta.value = '';
           setRecipientText('');
           setRecipients([]);
           setTotalEmails(0);
@@ -88,7 +97,8 @@ const handleFileUpload = (e) => {
   };
 
     return (
-  <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64">
+      <Protected>
+        <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64">
   <div className="max-w-4xl mx-auto">
     <div className="rounded-xl bg-gradient-to-br from-white to-slate-200 p-8">
       <h2 className="text-2xl font-bold text-gray-800 mb-6">Manage Recipients</h2>
@@ -109,7 +119,7 @@ const handleFileUpload = (e) => {
               className="hidden"
             />
             <button
-              onClick={() => fileInputRef.current.click()}
+              onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700"
             >
               <Upload className="w-5 h-5" />
@@ -161,5 +171,6 @@ const handleFileUpload = (e) => {
     </div>
   </div>
         </div>
+      </Protected>
     );
 }

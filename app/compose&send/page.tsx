@@ -1,8 +1,22 @@
 "use client";
+import Protected from '../_components/Protected';
 import { useState, useEffect } from 'react';
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Eye, PenLine, Send } from 'lucide-react';
-import { fetchRecipientsFromFirebase } from '../_utils/firebase-operations.tsx';
+import { fetchRecipientsFromFirebase } from '../_utils/firebase-operations';
 import {toast, ToastContainer} from 'react-toastify';
+import { useUser } from '../_context/UserProvider';
+
+interface Recipient {
+  name: string;
+  email: string;
+}
+
+interface SendResult {
+  recipients: Recipient[];
+  totalCount: number;
+  rawText: string;
+}
+
 
 export default function Compose () {
   const [text, setText] = useState('Your message here...');
@@ -19,24 +33,29 @@ export default function Compose () {
   const [italic, setItalic] = useState(false);
   const [underline, setUnderline] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [htmlContent, setHtmlContent] = useState('')
-  const [recipients, setRecipients] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [selectedRecipients, setSelectedRecipients] = useState([]);
-  const [subject, setSubject] = useState('');
-  const [sendLoading, setSendLoading] = useState(false);
-  const [sendResult, setSendResult] = useState(null);
+  const [htmlContent, setHtmlContent] = useState<string>('');
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<Recipient[]>([]);
+  const [selectedRecipients, setSelectedRecipients] = useState<Recipient[]>([]);
+  const [subject, setSubject] = useState<string>('');
+  const [sendLoading, setSendLoading] = useState<boolean>(false);
+  const [sendResult, setSendResult] = useState<SendResult | null>(null);
+  const { user } = useUser();
   
        useEffect( () => {
-           fetchRecipientsFromFirebase({userId: '123'})
+           fetchRecipientsFromFirebase({userId: user?.uid as string})
            .then(data => {
-              setRecipients(data.data.rawText ? data.data.recipients : []);
+              if (data && data.data && data.data.rawText) {
+                setRecipients(data.data.recipients);
+              } else {
+                setRecipients([]);
+              }
            })
-           .catch(err => console.error('Error fetching recipients:', err.message));
+          .catch(err => console.error('Error fetching recipients:', err instanceof Error ? err.message : String(err)));
        }, []);
 
-       const handleChange = (e) => {
+       const handleChange = (e : React.ChangeEvent<HTMLInputElement>) => {
          const q = e.target.value;
          setSearchQuery(q);
          if (!q) {
@@ -51,7 +70,7 @@ export default function Compose () {
          setSearchResults(resp);
        }
 
-       const addRecipient = (r) => {
+       const addRecipient = (r : Recipient) => {
          if (!r || !r.email) return;
          setSelectedRecipients(prev => {
            if (prev.find(p => p.email === r.email)) return prev;
@@ -81,7 +100,7 @@ export default function Compose () {
          setSearchResults([]);
        }
 
-       const removeSelected = (email) => {
+       const removeSelected = (email : string) => {
          setSelectedRecipients(prev => prev.filter(p => p.email !== email));
        }
 
@@ -139,6 +158,7 @@ export default function Compose () {
   }
 
     return (
+      <Protected>
         <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64">
     <div className="sm:grid sm:grid-cols-2 sm:gap-4">
         <ToastContainer position="top-right" autoClose={7000} hideProgressBar={false} closeOnClick draggable pauseOnHover theme={"light"} />
@@ -166,7 +186,7 @@ export default function Compose () {
               <button onClick={() => removeSelected(r.email)} className="ml-1 text-xs text-gray-500 hover:text-gray-700">✕</button>
             </span>
           ))}
-
+          
           <input
             type="text"
             value={searchQuery}
@@ -192,7 +212,7 @@ export default function Compose () {
                 {recipient.name ? `${recipient.name} — ${recipient.email}` : recipient.email}
               </button>
             ))}
-          </div>
+              </div>
         )}
       </div>
     </div>
@@ -416,7 +436,7 @@ export default function Compose () {
                 toast.error('Error: ' + (data.message || JSON.stringify(data)));
               }
             }catch(err){
-              toast.error('Error: ' + err.message);
+              toast.error('Error: ' + (err instanceof Error ? err.message : String(err)));
             }finally{
               setSendLoading(false);
             }
@@ -426,6 +446,7 @@ export default function Compose () {
     </div>
     </div>
         </div>
+  </Protected>
     );
 
 }
