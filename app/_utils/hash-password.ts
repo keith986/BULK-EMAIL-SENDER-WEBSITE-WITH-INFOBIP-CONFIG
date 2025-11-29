@@ -1,6 +1,7 @@
 // Client-side password hashing helper using Web Crypto (PBKDF2 + SHA-256)
 // Returns an object with { salt, iterations, hash } where salt and hash are base64 strings
 
+/*
 const encoder = (s: string) => new TextEncoder().encode(s);
 const toBase64 = (b: ArrayBuffer) => {
   const bytes = new Uint8Array(b);
@@ -44,4 +45,36 @@ export async function verifyPassword(password: string, stored: { salt: string, i
   const derivedBase64 = toBase64(derivedBits);
   // timing-safe compare is better, but here simple equality is used
   return derivedBase64 === stored.hash;
+}
+*/
+
+import { createHash, randomBytes } from 'crypto';
+
+export async function hashPassword(password: string): Promise<string> {
+  // For server-side, use Node.js crypto
+  const salt = randomBytes(16).toString('hex');
+  const hash = createHash('sha256')
+    .update(salt + password)  // salt FIRST
+    .digest('hex');
+  
+  return `${salt}:${hash}`;
+}
+
+export async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
+  try {
+    const [salt, hash] = hashedPassword.split(':');
+    
+    if (!salt || !hash) {
+      return false;
+    }
+    
+    const newHash = createHash('sha256')
+      .update(salt + password)  // salt FIRST (must match hashPassword)
+      .digest('hex');
+    
+    return hash === newHash;
+  } catch (error) {
+    console.error('verifyPassword error:', error);
+    return false;
+  }
 }

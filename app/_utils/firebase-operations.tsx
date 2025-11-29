@@ -10,17 +10,10 @@ const COLLECTION_RECIPIENTS_NAME = "recipients";
 const COLLECTION_CAMPAIGNS_NAME = "campaigns";
 const COLLECTIONS_CLIENTS = "clients";
 
-// Represent the stored hashed password format we save in Firestore
-type StoredHashedPassword = {
-  salt: string;
-  iterations: number;
-  hash: string;
-};
-
 type ClientDocument = {
   email?: string | null;
   displayName?: string | null;
-  hashedPassword?: StoredHashedPassword | null;
+  hashedPassword?: string | null;
 };
 
 export const uploadApiDataToFirebase = async ({userId, apiKey}: {userId: string, apiKey: string}): Promise<{code: number, message: string}> => {
@@ -237,7 +230,7 @@ export const fetchRecipientsFromFirebase = async ({userId}: {userId: string}): P
     } else {
       return { code: 404, message: 'No recipients found for this user.' };
     }
-  } catch (error: unknown) {
+  } catch (error: unknown) { 
     const message = error instanceof Error ? error.message : String(error);
     console.error('fetchRecipientsFromFirebase error:', error);
     return { code: 101, message };
