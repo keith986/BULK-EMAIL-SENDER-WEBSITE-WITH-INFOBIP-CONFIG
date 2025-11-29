@@ -23,7 +23,7 @@ export default function DashboardClient() {
         }
       })
       .catch(err => console.error('Error fetching recipients:', err.message));
-  }, []);
+  }, [user?.uid]);
 
   return (
     <Protected>
