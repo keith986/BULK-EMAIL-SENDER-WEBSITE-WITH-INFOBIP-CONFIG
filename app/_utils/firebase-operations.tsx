@@ -451,4 +451,45 @@ export const signInWithEmailandPassword = async ({email, password}: {email: stri
   }
 }
 
+// Delete API data for a user
+export const deleteApiDataToFirebase = async ({userId}: {userId: string}): Promise<{code: number, message: string}> => {
+  try{
+    // Check if userId exists
+    const q = query(collection(db, COLLECTION_API_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+      // User exists, delete the existing document
+      const existingDoc = querySnapshot.docs[0];
+      await updateDoc(doc(db, COLLECTION_API_NAME, existingDoc.id), {apiKey: ""});
+      return { code: 777, message: 'Your Api Key has been deleted successfully.' };
+    } else {
+      return { code: 101, message: 'No Api Key found.' };
+    }
+  }catch(error){
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('deleteApiDataToFirebase error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Delete Batch Settings for a user
+export const deleteBatchSettingsFromFirebase = async ({userId}: {userId: string}): Promise<{code: number, message: string}> => {
+  try{
+    // Check if userId exists
+    const q = query(collection(db, COLLECTION_BATCH_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+      // User exists, delete the existing document
+      const existingDoc = querySnapshot.docs[0];
+      await updateDoc(doc(db, COLLECTION_BATCH_NAME, existingDoc.id), {batchSize: "", delayBetweenBatches: ""});
+      return { code: 777, message: 'Your Batch Settings have been deleted successfully.' };
+    } else {
+      return { code: 101, message: 'No Batch Settings found.' };
+    }
+  }catch(error){
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('deleteBatchSettingsFromFirebase error:', error);
+    return { code: 101, message };
+  }
+}
 

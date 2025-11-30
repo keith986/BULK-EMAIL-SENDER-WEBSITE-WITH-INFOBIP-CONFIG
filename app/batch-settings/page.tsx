@@ -1,7 +1,7 @@
 "use client";
 import Protected from '../_components/Protected';
 import { useState } from "react";
-import { uploadBatchSettingsToFirebase } from '../_utils/firebase-operations';
+import { uploadBatchSettingsToFirebase, deleteBatchSettingsFromFirebase } from '../_utils/firebase-operations';
 import { toast, ToastContainer } from 'react-toastify';
 import { useUser } from '../_context/UserProvider';
 
@@ -9,6 +9,7 @@ export default function BatchSettings() {
 const [batchSize, setBatchSize] = useState(10);
 const [delayBetweenBatches, setDelayBetweenBatches] = useState(1000);
 const [isLoading, setIsLoading] = useState(false);
+const [isDeleted, setIsDeleted] = useState(false);
 const { user } = useUser();
 
 const saveBatchSettings = async () => {
@@ -26,6 +27,24 @@ const saveBatchSettings = async () => {
   }catch(error){
     toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
     setIsLoading(false);
+  }
+}
+
+const handleDeleteBatchSettings = async () => {
+  try{
+    setIsDeleted(true)
+    const response = await deleteBatchSettingsFromFirebase({userId: user?.uid as string});
+    if(response.code == 777){
+      toast.success(response.message);
+      setIsDeleted(false);
+    }
+    if(response.code == 101){
+      toast.error(response.message);
+      setIsDeleted(false);
+    }
+  }catch(error){
+    toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
+    setIsDeleted(false);
   }
 }
 
@@ -96,7 +115,7 @@ const saveBatchSettings = async () => {
             </div>
           </div>
 
-              <div className="mt-4">
+              <div className="mt-4 flex items-center gap-4">
                 <button
                   onClick={saveBatchSettings}
                   disabled={isLoading}
@@ -107,6 +126,13 @@ const saveBatchSettings = async () => {
                   ) : (
                     <span>Save</span>
                   )}
+                </button>
+                <button disabled={isDeleted} className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 cursor-pointer" onClick={handleDeleteBatchSettings}>
+                {isDeleted ? (
+                  <span>deleting...</span>
+                ) : (
+                  <span>Delete Batch Settings</span>
+                )}
                 </button>
               </div>
 

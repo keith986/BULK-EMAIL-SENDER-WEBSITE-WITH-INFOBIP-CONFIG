@@ -2,12 +2,44 @@
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUser } from '../_context/UserProvider';
+import { useState, useEffect, useRef } from 'react';
 
 export default function Navbar() {
   const pathname = usePathname();
   const { user, loading, signOut } = useUser();
   const router = useRouter();
 
+   // State for dropdown visibility
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  
+  // Refs for click outside detection
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+   // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        buttonRef.current &&
+        !dropdownRef.current.contains(event.target as Node) &&
+        !buttonRef.current.contains(event.target as Node)
+      ) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    // Only add listener when dropdown is open
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDropdownOpen]);
+  
   // Don't show the global navbar on the public landing page or public marketing routes
   if (
     pathname === '/' ||
@@ -19,10 +51,13 @@ export default function Navbar() {
   ) return null;
 
   const handleDropDown = () => {
+    /*
     const dropdown = document.getElementById('user-dropdown');
     if (dropdown) {
       dropdown.classList.toggle('hidden');
     }
+    */
+   setIsDropdownOpen(!isDropdownOpen);
   }
 
   const handleNavbarDropdown = () => {
@@ -31,6 +66,7 @@ export default function Navbar() {
       dropdown.classList.toggle('hidden');
     }
   }
+
 
   return (
    <div>
@@ -45,13 +81,14 @@ export default function Navbar() {
         <span className="text-sm font-semibold whitespace-nowrap text-white dark:text-white hidden md:block">Professional Email Campaign Manager</span>
       </div>
   </Link>
-  <div className="flex items-center md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse">
-      <button type="button" className="flex text-sm bg-gray-800 rounded-full w-10 h-10 justify-center items-center md:me-0 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-100" id="user-menu-button" onClick={handleDropDown}>
+  <div className="flex items-center md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse z-1000">
+      <button type="button" className="flex text-sm bg-gray-800 rounded-full w-10 h-10 justify-center items-center md:me-0 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-100" id="user-menu-button" onClick={handleDropDown} ref={buttonRef}>
         <span className='text-white dark:text-white text-xl'>
           {loading ? '…' : user?.displayName ? user.displayName.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() ?? '...')}
         </span>
       </button>
-      <div className="z-50 hidden my-4 absolute md:top-10 top-10 right-10 text-base list-none bg-white divide-y divide-gray-100 rounded-lg shadow-sm dark:bg-gray-700 dark:divide-gray-600" id="user-dropdown">
+      {isDropdownOpen && (
+      <div className="z-50 my-4 absolute md:top-10 top-10 right-10 text-base list-none bg-white divide-y divide-gray-100 rounded-lg shadow-sm dark:bg-gray-700 dark:divide-gray-600" id="user-dropdown" ref={dropdownRef}>
         <div className="px-4 py-3">
           <span className="block text-sm text-gray-900 dark:text-white">{user?.displayName ?? 'anonymous'}</span>
           <span className="block text-sm  text-gray-500 truncate dark:text-gray-400">{user?.email ?? '—'}</span>
@@ -71,6 +108,7 @@ export default function Navbar() {
           </li>
         </ul>
       </div>
+      )}
         <button onClick={handleNavbarDropdown} data-collapse-toggle="navbar-user" type="button" className="inline-flex items-center p-2 w-10 h-10 justify-center text-sm text-gray-500 rounded-lg md:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600" aria-controls="navbar-user" aria-expanded="false">
         <svg className="w-5 h-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 17 14">
             <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M1 1h15M1 7h15M1 13h15"/>

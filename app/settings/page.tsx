@@ -15,6 +15,8 @@ export default function SettingsPage() {
     if (user?.displayName) setDisplayName(user.displayName);
   }, [user?.displayName]);
 
+  console.log(user)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user?.uid) return toast.error('You must be signed in to update your profile.');
@@ -45,7 +47,7 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-200 to-slate-500">
     <div className="p-6 max-w-3xl mx-auto md:mt-20 sm:bg-gradient-to-br sm:from-slate-600 sm:to-slate-500">
-      <h1 className="text-2xl font-semibold mb-4">Settings</h1>
+      <h1 className="text-2xl font-semibold mb-4 text-white">Settings</h1>
       <form onSubmit={handleSubmit} className="bg-white shadow-sm rounded p-6">
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Display name</label>
@@ -69,7 +71,7 @@ export default function SettingsPage() {
 
       <ToastContainer position="top-right" autoClose={7000} hideProgressBar={false} closeOnClick draggable pauseOnHover theme={"light"} />
     </div>
-    </div>
+     </div>
   );
-  
+
 }

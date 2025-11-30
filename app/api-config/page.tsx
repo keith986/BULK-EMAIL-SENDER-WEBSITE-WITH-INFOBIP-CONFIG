@@ -3,15 +3,16 @@ import Protected from '../_components/Protected';
 import { useState } from "react";
 import { CheckCircle, AlertCircle, Eye } from "lucide-react";
 import { toast, ToastContainer } from 'react-toastify';
-import {uploadApiDataToFirebase} from '../_utils/firebase-operations'
+import {uploadApiDataToFirebase, deleteApiDataToFirebase} from '../_utils/firebase-operations';
 import { useUser } from '../_context/UserProvider';
 
 export default function ApiConfigPage(){
-    // API Configuration state
+// API Configuration state
 const [apiKey, setApiKey] = useState('');
 const [baseUrl, setBaseUrl] = useState('https://api.infobip.com');
 const [loading, setLoading] = useState(false);
 const [isLoading, setIsLoading] = useState(false);
+const [isDeleted, setIsDeleted] = useState(false);
 const { user } = useUser();
 
 const handleToggleEye = () => {
@@ -19,7 +20,6 @@ const handleToggleEye = () => {
   if (!toggleeye) return;
   toggleeye.type = toggleeye.type === 'password' ? 'text' : 'password';
 }
-
 
 const testConnection = async () => {
   try {
@@ -71,9 +71,26 @@ const saveApiKey = async () => {
     toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
     setIsLoading(false);
   }
-}
+  }
 }
 
+const handleDeleteApiKey = async () => {
+  try{
+    setIsDeleted(true)
+    const response = await deleteApiDataToFirebase({userId: user?.uid as string});
+    if(response.code == 777){
+      toast.success(response.message);
+      setIsDeleted(false);
+    }
+    if(response.code == 101){
+      toast.error(response.message);
+      setIsDeleted(false);
+    }
+  }catch(error){
+    toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
+    setIsDeleted(false);
+  }
+}
 
   return (
     <Protected>
@@ -121,7 +138,7 @@ const saveApiKey = async () => {
             <p className="text-sm text-gray-600 mt-2">
               Default: https://api.infobip.com (for Infobip Cloud)
             </p>
-            <div className="mt-4">
+            <div className="mt-4 flex items-center gap-4">
                 <button
                   onClick={saveApiKey}
                   disabled={isLoading}
@@ -133,6 +150,12 @@ const saveApiKey = async () => {
                     <span>Save</span>
                   )}
                 </button>
+                <button disabled={isDeleted} className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 cursor-pointer" onClick={handleDeleteApiKey}>
+                {isDeleted ? (
+                  <span>deleting...</span>
+                ) : (
+                  <span>Delete Api Key</span>
+                )}</button>
               </div>
           </div>
           
