@@ -42,7 +42,7 @@ export default function PricingPage(){
         </div>
 
         <section className="mt-10 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold">What's included</h3>
+          <h3 className="text-lg font-semibold">What is included</h3>
           <div className="mt-4 grid gap-4 md:grid-cols-3">
             <div className="p-4">
               <div className="font-semibold">Starter</div>
