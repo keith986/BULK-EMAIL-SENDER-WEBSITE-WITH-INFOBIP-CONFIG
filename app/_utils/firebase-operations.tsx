@@ -9,6 +9,9 @@ const COLLECTION_BATCH_NAME = "batchsettings";
 const COLLECTION_RECIPIENTS_NAME = "recipients";
 const COLLECTION_CAMPAIGNS_NAME = "campaigns";
 const COLLECTIONS_CLIENTS = "clients";
+const COLLECTION_GROUPS_NAME = "groups";
+const COLLECTION_COINS_NAME = "coins";
+const COLLECTION_TRANSACTIONS_NAME = "transactions";
 
 type ClientDocument = {
   email?: string | null;
@@ -493,3 +496,450 @@ export const deleteBatchSettingsFromFirebase = async ({userId}: {userId: string}
   }
 }
 
+// Add this function to your firebase-operations.ts file
+
+export async function updateRecipientGroups({ 
+  userId, 
+  email, 
+  groups 
+}: { 
+  userId: string; 
+  email: string; 
+  groups: string[] 
+}) {
+  try {
+    // Query to find the user's recipients document
+    const q = query(collection(db, COLLECTION_RECIPIENTS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      console.error('No recipients document found for user:', userId);
+      return {
+        code: 404,
+        message: 'No recipients document found for user',
+        error: 'Document not found'
+      };
+    }
+
+    // Get the recipients document
+    const recipientsDoc = querySnapshot.docs[0];
+    const data = recipientsDoc.data() as { 
+      recipients?: Array<{ name?: string; email?: string; groups?: string[] }>;
+      rawText?: string;
+      totalCount?: number;
+    };
+    
+    // Get existing recipients array
+    const recipients = Array.isArray(data.recipients) ? data.recipients : [];
+    
+    console.log('Before update - Total recipients:', recipients.length);
+    console.log('Looking for email:', email);
+    
+    // Find and update the specific recipient
+    let found = false;
+    const updatedRecipients = recipients.map(recipient => {
+      if (recipient?.email && recipient.email.toLowerCase() === email.toLowerCase()) {
+        console.log('Found recipient:', recipient.email, 'Updating groups to:', groups);
+        found = true;
+        return {
+          ...recipient,
+          groups: groups
+        };
+      }
+      return recipient;
+    });
+
+    if (!found) {
+      console.error('Recipient not found:', email);
+      console.log('Available emails:', recipients.map(r => r?.email).filter(Boolean));
+      return {
+        code: 404,
+        message: 'Recipient not found',
+        error: 'Recipient email not found in the list'
+      };
+    }
+
+    console.log('After update - Updated recipients:', updatedRecipients.length);
+
+    // Update the document with the modified recipients array
+    await updateDoc(doc(db, COLLECTION_RECIPIENTS_NAME, recipientsDoc.id), {
+      recipients: updatedRecipients,
+      updatedAt: serverTimestamp()
+    });
+
+    console.log('Successfully updated recipient:', email);
+
+    return {
+      code: 777,
+      message: 'Groups updated successfully',
+      data: { email, groups }
+    };
+  } catch (error) {
+    console.error('Error updating recipient groups:', error);
+    return {
+      code: 500,
+      message: 'Failed to update groups',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Add this function to save groups list to Firebase
+export async function saveGroupsToFirebase({ 
+  userId, 
+  groups 
+}: { 
+  userId: string; 
+  groups: string[] 
+}) {
+  try {
+    // Check if userId already has a groups document
+    const q = query(collection(db, COLLECTION_GROUPS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      // Update existing document
+      const existingDoc = querySnapshot.docs[0];
+      await updateDoc(doc(db, COLLECTION_GROUPS_NAME, existingDoc.id), {
+        groups: groups,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // Create new document
+      await addDoc(collection(db, COLLECTION_GROUPS_NAME), {
+        userId: userId,
+        groups: groups,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    return {
+      code: 777,
+      message: 'Groups saved successfully',
+      data: { groups }
+    };
+  } catch (error) {
+    console.error('Error saving groups:', error);
+    return {
+      code: 500,
+      message: 'Failed to save groups',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Add this function to fetch groups from Firebase
+export async function fetchGroupsFromFirebase({ 
+  userId 
+}: { 
+  userId: string 
+}) {
+  try {
+    const q = query(collection(db, COLLECTION_GROUPS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      const groupsDoc = querySnapshot.docs[0];
+      const data = groupsDoc.data() as { groups?: string[] };
+      return {
+        code: 777,
+        message: 'Groups fetched successfully',
+        data: { groups: data.groups || [] }
+      };
+    } else {
+      // Return default groups if none exist
+      return {
+        code: 777,
+        message: 'No groups found, using defaults',
+        data: { groups: ['VIP', 'Newsletter', 'Customers', 'Leads'] }
+      };
+    }
+  } catch (error) {
+    console.error('Error fetching groups:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch groups',
+      error: error instanceof Error ? error.message : String(error),
+      data: { groups: ['VIP', 'Newsletter', 'Customers', 'Leads'] }
+    };
+  }
+}
+
+// Add this function to handle multiple recipient group updates in a single operation
+export async function updateMultipleRecipientGroups({ 
+  userId, 
+  groupUpdates 
+}: { 
+  userId: string; 
+  groupUpdates: Record<string, string[]>; // email -> groups array
+}) {
+  try {
+    // Query to find the user's recipients document
+    const q = query(collection(db, COLLECTION_RECIPIENTS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      return {
+        code: 404,
+        message: 'No recipients document found for user',
+        error: 'Document not found'
+      };
+    }
+
+    // Get the recipients document
+    const recipientsDoc = querySnapshot.docs[0];
+    const data = recipientsDoc.data() as { 
+      recipients?: Array<{ name?: string; email?: string; groups?: string[] }>;
+      rawText?: string;
+      totalCount?: number;
+    };
+    
+    // Get existing recipients array
+    const recipients = Array.isArray(data.recipients) ? data.recipients : [];
+    
+    // Update all recipients in one pass
+    const updatedRecipients = recipients.map(recipient => {
+      if (recipient?.email && groupUpdates[recipient.email]) {
+        return {
+          ...recipient,
+          groups: groupUpdates[recipient.email]
+        };
+      }
+      return recipient;
+    });
+
+    // Update the document with the modified recipients array
+    await updateDoc(doc(db, COLLECTION_RECIPIENTS_NAME, recipientsDoc.id), {
+      recipients: updatedRecipients,
+      updatedAt: serverTimestamp()
+    });
+
+    return {
+      code: 777,
+      message: 'Groups updated successfully for multiple recipients',
+      data: { updated: Object.keys(groupUpdates).length }
+    };
+  } catch (error) {
+    console.error('Error updating multiple recipient groups:', error);
+    return {
+      code: 500,
+      message: 'Failed to update groups',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+
+// Fetch user coins from Firebase
+export async function fetchUserCoinsFromFirebase({ 
+  userId 
+}: { 
+  userId: string 
+}) {
+  try {
+    const q = query(collection(db, COLLECTION_COINS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      const coinsDoc = querySnapshot.docs[0];
+      const data = coinsDoc.data() as { coins?: number };
+      return {
+        code: 777,
+        message: 'Coins fetched successfully',
+        data: { coins: data.coins || 0 }
+      };
+    } else {
+      // Create initial coins document with 0 coins
+      await addDoc(collection(db, COLLECTION_COINS_NAME), {
+        userId: userId,
+        coins: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return {
+        code: 777,
+        message: 'Coins initialized',
+        data: { coins: 0 }
+      };
+    }
+  } catch (error) {
+    console.error('Error fetching coins:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch coins',
+      error: error instanceof Error ? error.message : String(error),
+      data: { coins: 0 }
+    };
+  }
+}
+
+// Purchase coins
+export async function purchaseCoins({ 
+  userId, 
+  amount, 
+  price, 
+  packageInfo 
+}: { 
+  userId: string; 
+  amount: number; 
+  price: number; 
+  packageInfo: string;
+}) {
+  try {
+    // Get current coins
+    const q = query(collection(db, COLLECTION_COINS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    let newBalance = amount;
+    
+    if (!querySnapshot.empty) {
+      const coinsDoc = querySnapshot.docs[0];
+      const data = coinsDoc.data() as { coins?: number };
+      const currentCoins = data.coins || 0;
+      newBalance = currentCoins + amount;
+
+      // Update coins
+      await updateDoc(doc(db, COLLECTION_COINS_NAME, coinsDoc.id), {
+        coins: newBalance,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // Create new coins document
+      await addDoc(collection(db, COLLECTION_COINS_NAME), {
+        userId: userId,
+        coins: amount,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    // Create transaction record
+    await addDoc(collection(db, COLLECTION_TRANSACTIONS_NAME), {
+      userId: userId,
+      amount: amount,
+      type: 'purchase',
+      description: `Purchased ${packageInfo} for $${price}`,
+      date: serverTimestamp(),
+      status: 'completed',
+      price: price,
+      packageInfo: packageInfo
+    });
+
+    return {
+      code: 777,
+      message: 'Coins purchased successfully',
+      data: { newBalance, amount }
+    };
+  } catch (error) {
+    console.error('Error purchasing coins:', error);
+    return {
+      code: 500,
+      message: 'Failed to purchase coins',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Fetch coin transactions
+export async function fetchCoinTransactionsFromFirebase({ 
+  userId 
+}: { 
+  userId: string 
+}) {
+  try {
+    const q = query(
+      collection(db, COLLECTION_TRANSACTIONS_NAME), 
+      where('userId', '==', userId)
+    );
+    const querySnapshot = await getDocs(q);
+
+    const transactions = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      date: doc.data().date?.toDate() || new Date()
+    }));
+
+    // Sort by date descending
+    transactions.sort((a , b ) => b.date.getTime() - a.date.getTime());
+
+    return {
+      code: 777,
+      message: 'Transactions fetched successfully',
+      data: { transactions }
+    };
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch transactions',
+      error: error instanceof Error ? error.message : String(error),
+      data: { transactions: [] }
+    };
+  }
+}
+
+// Use coins (deduct for sending emails)
+export async function useCoins({ 
+  userId, 
+  amount, 
+  description 
+}: { 
+  userId: string; 
+  amount: number; 
+  description: string;
+}) {
+  try {
+    const q = query(collection(db, COLLECTION_COINS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      return {
+        code: 404,
+        message: 'No coins account found'
+      };
+    }
+
+    const coinsDoc = querySnapshot.docs[0];
+    const data = coinsDoc.data() as { coins?: number };
+    const currentCoins = data.coins || 0;
+
+    if (currentCoins < amount) {
+      return {
+        code: 400,
+        message: 'Insufficient coins'
+      };
+    }
+
+    const newBalance = currentCoins - amount;
+
+    // Update coins
+    await updateDoc(doc(db, COLLECTION_COINS_NAME, coinsDoc.id), {
+      coins: newBalance,
+      updatedAt: serverTimestamp()
+    });
+
+    // Create transaction record
+    await addDoc(collection(db, COLLECTION_TRANSACTIONS_NAME), {
+      userId: userId,
+      amount: amount,
+      type: 'usage',
+      description: description,
+      date: serverTimestamp(),
+      status: 'completed'
+    });
+
+    return {
+      code: 777,
+      message: 'Coins used successfully',
+      data: { newBalance, amount }
+    };
+  } catch (error) {
+    console.error('Error using coins:', error);
+    return {
+      code: 500,
+      message: 'Failed to use coins',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
