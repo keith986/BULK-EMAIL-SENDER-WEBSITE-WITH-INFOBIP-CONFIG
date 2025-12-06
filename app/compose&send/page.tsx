@@ -75,7 +75,7 @@ const sampleTemplates: EmailTemplate[] = [
   {
     id: 'promotional',
     name: 'Promotional Offer',
-    subject: 'Special Offer Just for You! 🎉',
+    subject: 'Special Offer Just for You!',
     text: 'EXCLUSIVE OFFER\n\nDon\'t miss out on our limited-time promotion!\n\nGet 30% OFF on all premium features this week only.\n\nUse code: SAVE30\n\nOffer expires soon - Act now!',
     fontSize: '18',
     textColor: '#ffffff',
@@ -111,7 +111,7 @@ const sampleTemplates: EmailTemplate[] = [
   {
     id: 'event',
     name: 'Event Invitation',
-    subject: 'You\'re Invited! 🎊',
+    subject: 'You\'re Invited!',
     text: 'YOU\'RE INVITED!\n\nJoin us for an exclusive event:\n\nDate: [Event Date]\nTime: [Event Time]\nLocation: [Event Location]\n\nRSVP by [RSVP Date]\n\nWe look forward to seeing you there!',
     fontSize: '17',
     textColor: '#4a5568',
