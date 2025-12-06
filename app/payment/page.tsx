@@ -1,13 +1,17 @@
 "use client";
 import Protected from '../_components/Protected';
 import { useEffect, useState } from 'react';
-import { fetchRecipientsFromFirebase } from '../_utils/firebase-operations';
 import { useUser } from '../_context/UserProvider';
 import { toast, ToastContainer } from 'react-toastify';
+import { Plus } from 'lucide-react';
 
-interface Recipient {
-  name: string;
-  email: string;
+interface CoinPackage {
+  coins: number | string;
+  price: string;
+  popular: boolean;
+  bonus?: number;
+  isCustom?: boolean;
+  features?: string[];
 }
 
 interface CoinTransaction {
@@ -20,7 +24,6 @@ interface CoinTransaction {
 }
 
 export default function DashboardClient() {
-  const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [coins, setCoins] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showTransactionsModal, setShowTransactionsModal] = useState(false);
@@ -28,30 +31,59 @@ export default function DashboardClient() {
   const [transactions, setTransactions] = useState<CoinTransaction[]>([]);
   const { user } = useUser();
 
-  // Coin packages
-  const coinPackages = [
-    { coins: 2000, price: "Kes. 400", popular: false },
-    { coins: 6000, price: "Kes. 1000", popular: true, bonus: 20 },
-    { coins: 10000, price: "Kes. 1700", popular: false, bonus: 50 },
-    { coins: "Custom", popular: false, price: "contact support", bonus: 150},
+  // Coin packages with CORRECT Kenyan Shilling prices
+  const coinPackages: CoinPackage[] = [
+    { 
+      coins: 2000, 
+      price: "Kes. 400", 
+      popular: false,
+      features: [
+        "Limited to 2,000 contacts",
+        "Standard support",
+        "Valid for 30 days"
+      ]
+    },
+    { 
+      coins: 6000, 
+      price: "Kes. 1,000", 
+      popular: true, 
+      bonus: 50,
+      features: [
+        "Limited to 6,000 contacts",
+        "Priority support",
+        "Valid for 30 days",
+        "+50 Bonus coins"
+      ]
+    },
+    { 
+      coins: 10000, 
+      price: "Kes. 1,700", 
+      popular: false, 
+      bonus: 150,
+      features: [
+        "Limited to 10,000 contacts",
+        "24/7 Premium support",
+        "Valid for 30 days",
+        "+150 Bonus coins"
+      ]
+    },
+    { 
+      coins: "Custom", 
+      popular: false, 
+      price: "Contact Support",
+      isCustom: true,
+      features: [
+        "Unlimited contacts",
+        "Dedicated support",
+        "Custom validity period",
+        "Negotiable pricing"
+      ]
+    },
   ];
 
   useEffect(() => {
     const uid = user?.uid;
     if (!uid) return;
-
-    // Fetch recipients
-    fetchRecipientsFromFirebase({ userId: uid })
-      .then(data => {
-        if (data && data.data && data.data.rawText) {
-          setRecipients(data.data.recipients || []);
-        } else {
-          setRecipients([]); 
-        }
-      })
-      .catch(err => console.error('Error fetching recipients:', err.message));
-
-    // Fetch coins and transactions from Firebase
     fetchUserCoins(uid);
     fetchCoinTransactions(uid);
   }, [user?.uid]);
@@ -71,12 +103,13 @@ export default function DashboardClient() {
   const fetchCoinTransactions = async (userId: string) => {
     try {
       const { fetchCoinTransactionsFromFirebase } = await import('../_utils/firebase-operations');
-      const result = await fetchCoinTransactionsFromFirebase({ userId });
-      if (result.code === 777) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await fetchCoinTransactionsFromFirebase({ userId }) as any;
+      if (result && result.code === 777) {
         setTransactions(result.data?.transactions || []);
       }
     } catch (err) {
-      console.error('Error fetching transactions:', err);
+      console.error('Error fetching transactions:', err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -85,16 +118,21 @@ export default function DashboardClient() {
     if (!uid) return toast.error('You must be signed in');
 
     const pkg = coinPackages[packageIndex];
-    const totalCoins = pkg.coins + (pkg.bonus || 0);
+    
+    if (pkg.isCustom) {
+      toast.info('Please contact support at support@example.com for custom packages');
+      setShowPaymentModal(false);
+      return;
+    }
+
+    const totalCoins = (typeof pkg.coins === 'number' ? pkg.coins : 0) + (pkg.bonus || 0);
 
     try {
-      // In production, integrate with payment gateway (Stripe, PayPal, etc.)
-      // For now, we'll simulate the purchase
       const { purchaseCoins } = await import('../_utils/firebase-operations');
       const result = await purchaseCoins({
         userId: uid,
         amount: totalCoins,
-        price: pkg.price,
+        price: parseFloat(pkg.price.replace(/[^\d.-]/g, '')) || 0,
         packageInfo: `${pkg.coins} coins${pkg.bonus ? ` + ${pkg.bonus} bonus` : ''}`
       });
 
@@ -113,100 +151,96 @@ export default function DashboardClient() {
 
   return (
     <Protected>
-      <div className="sm:mt-2 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">
+      <div className="sm:mt-2 bg-gradient-to-br from-red-200 to-slate-600 min-h-screen p-4">
         <div className="p-4 sm:ml-64 mt-20">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800">Payment</h2>
-              <p className="mt-1 text-sm text-gray-600">Welcome to your payment page. Manage your credits.</p>
-            </div>
+          {/* Hero Section with Coin Balance */}
+          <div className="bg-gradient-to-r from-green-600 via-red-100 to-green-700 rounded-2xl shadow-2xl p-8 mb-8 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full -mr-32 -mt-32"></div>
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-white opacity-10 rounded-full -ml-24 -mb-24"></div>
             
-            {/* Coins Display */}
-            <div className="flex items-center gap-3">
-              <div className="bg-white rounded-lg shadow-md px-4 py-3 flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <div>
-                    <p className="text-xs text-gray-500">Available Coins</p>
-                    <p className="text-2xl font-bold text-gray-800">{coins}</p>
-                  </div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-3">
+                    <svg className="w-9 h-9 text-gray-600 dark:text-gray-600" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                      <path fill-rule="evenodd" d="M12 14a3 3 0 0 1 3-3h4a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-4a3 3 0 0 1-3-3Zm3-1a1 1 0 1 0 0 2h4v-2h-4Z" clip-rule="evenodd"/>
+                      <path fill-rule="evenodd" d="M12.293 3.293a1 1 0 0 1 1.414 0L16.414 6h-2.828l-1.293-1.293a1 1 0 0 1 0-1.414ZM12.414 6 9.707 3.293a1 1 0 0 0-1.414 0L5.586 6h6.828ZM4.586 7l-.056.055A2 2 0 0 0 3 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2h-4a5 5 0 0 1 0-10h4a2 2 0 0 0-1.53-1.945L17.414 7H4.586Z" clip-rule="evenodd"/>
+                    </svg>
+                    Payment Dashboard
+                  </h1>
+                  <p className="text-gray-600 text-lg">Manage your credits and purchases</p>
+                </div>
+                
+                <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-xl p-6 border-2 border-white border-opacity-30">
+                  <p className="text-gray-900 text-sm mb-1">Your Balance</p>
+                  <p className="text-5xl font-bold text-gray-900">{coins.toLocaleString()}</p>
+                  <p className="text-gray-900 text-sm mt-1">Available Coins</p>
                 </div>
               </div>
-              <button
-                onClick={() => setShowPaymentModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-              >
-                Buy Coins
-              </button>
-              <button
-                onClick={() => setShowTransactionsModal(true)}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium"
-              >
-                Transactions
-              </button>
+
+              <div className="mt-6 flex gap-3 flex-wrap">
+                <button
+                  onClick={() => setShowPaymentModal(true)}
+                  className="px-6 py-3 bg-white text-amber-600 cursor-pointer rounded-lg hover:bg-amber-50 font-bold shadow-lg transform hover:scale-105 transition-all flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Buy Coins
+                </button>
+                <button
+                  onClick={() => setShowTransactionsModal(true)}
+                  className="px-6 py-3 bg-white bg-opacity-20 backdrop-blur-sm text-gray-900 cursor-pointer rounded-lg hover:bg-opacity-30 font-semibold border-2 border-white border-opacity-30 transform hover:scale-105 transition-all flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  View Transactions
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div className="flex flex-col items-center justify-center h-24 rounded-lg bg-white shadow-md">
-              <p className="text-sm sm:text-lg text-gray-600 font-medium">Total Campaigns</p>
-              <p className="text-3xl font-bold text-gray-800">0</p>
-            </div>
-            <div className="flex flex-col items-center justify-center h-24 rounded-lg bg-white shadow-md">
-              <p className="text-sm sm:text-lg text-gray-600 font-medium">Success Rate</p>
-              <p className="text-3xl font-bold text-gray-800">0%</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 mb-4 mt-8">
-            <div className="flex flex-col items-center justify-center h-24 rounded-lg bg-white shadow-md">
-              <p className="text-sm sm:text-lg text-gray-600 font-medium">Recipients</p>
-              <p className="text-3xl font-bold text-gray-800">{recipients.length > 0 ? recipients.length : 0}</p>
-            </div>
-            <div className="flex flex-col items-center justify-center h-24 rounded-lg bg-white shadow-md">
-              <p className="text-sm sm:text-lg text-gray-600 font-medium">Sent</p>
-              <p className="text-3xl font-bold text-green-600">0</p>
-            </div>
-            <div className="flex flex-col items-center justify-center h-24 rounded-lg bg-white shadow-md">
-              <p className="text-sm sm:text-lg text-gray-600 font-medium">Failed</p>
-              <p className="text-3xl font-bold text-red-600">0</p>
-            </div>
-          </div>
-
-          {/* Coin Usage Info */}
-          <div className="mt-8 bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">How Coins Work</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="flex items-start gap-3">
-                <div className="bg-blue-100 rounded-full p-2">
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* How Coins Work */}
+          <div className="bg-gradient-to-br from-white to-gray-50 rounded-2xl shadow-xl p-8 border border-gray-200">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+              <span className="bg-gradient-to-r from-amber-400 to-yellow-500 text-white rounded-full p-2">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </span>
+              How Coins Work
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="flex items-start gap-4 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                <div className="bg-blue-500 rounded-full p-3 flex-shrink-0">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-800">1 Email = 1 Coin</p>
-                  <p className="text-sm text-gray-600">Each email sent costs 1 coin</p>
+                  <p className="font-bold text-gray-800 text-lg mb-1">1 Email = 1 Coin</p>
+                  <p className="text-sm text-gray-600">Each email sent costs 1 coin from your balance</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3">
-                <div className="bg-green-100 rounded-full p-2">
-                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+              <div className="flex items-start gap-4 p-4 bg-green-50 rounded-xl border border-green-200">
+                <div className="bg-green-500 rounded-full p-3 flex-shrink-0">
+                  <Plus className='text-white'/>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-800">Bulk Discounts</p>
+                  <p className="font-bold text-gray-800 text-lg mb-1">Bulk Discounts</p>
                   <p className="text-sm text-gray-600">Get bonus coins on larger packages</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3">
-                <div className="bg-purple-100 rounded-full p-2">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-start gap-4 p-4 bg-purple-50 rounded-xl border border-purple-200">
+                <div className="bg-purple-500 rounded-full p-3 flex-shrink-0">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-800">No Expiry</p>
-                  <p className="text-sm text-gray-600">Your coins never expire</p>
+                  <p className="font-bold text-gray-800 text-lg mb-1">No Expiry</p>
+                  <p className="text-sm text-gray-600">Your coins never expire, use them anytime</p>
                 </div>
               </div>
             </div>
@@ -215,76 +249,108 @@ export default function DashboardClient() {
 
         {/* Purchase Coins Modal */}
         {showPaymentModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-2xl font-bold text-gray-800">Purchase Coins</h3>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+              <div className="p-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-2xl font-bold bg-gradient-to-r from-amber-500 to-yellow-600 bg-clip-text text-transparent">
+                    Choose Your Coin Package
+                  </h3>
                   <button
                     onClick={() => setShowPaymentModal(false)}
-                    className="text-gray-500 hover:text-gray-700"
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   {coinPackages.map((pkg, index) => (
                     <div
                       key={index}
-                      className={`relative border-2 rounded-lg p-6 cursor-pointer transition-all ${
+                      className={`relative border-2 rounded-2xl p-6 cursor-pointer transition-all duration-300 ${
                         selectedPackage === index
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300'
-                      } ${pkg.popular ? 'ring-2 ring-blue-400' : ''}`}
+                          ? 'border-amber-500 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-2xl scale-105'
+                          : 'border-gray-200 hover:border-amber-300 hover:shadow-xl'
+                      }`}
                       onClick={() => setSelectedPackage(index)}
                     >
-                      {pkg.popular && (
-                        <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                          <span className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                            MOST POPULAR
-                          </span>
-                        </div>
-                      )}
                       
                       <div className="text-center">
-                        <p className="text-4xl font-bold text-gray-800 mb-1">{pkg.coins}</p>
-                        <p className="text-sm text-gray-600 mb-3">coins</p>
+                        <div className="mb-6 flex justify-center">
+                          {pkg.isCustom ? (
+                            <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg">
+                              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                              </svg>
+                            </div>
+                          ) : (
+                            <div className="w-20 h-20 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-full flex items-center justify-center shadow-lg">
+                              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+
+                        <p className="text-5xl font-bold text-gray-800 mb-2 font-sans">
+                          {typeof pkg.coins === 'number' ? pkg.coins.toLocaleString() : pkg.coins}
+                        </p>
+                        <p className="text-sm text-gray-600 mb-4 font-medium uppercase tracking-wide font-sans">
+                          {pkg.isCustom ? 'Package' : 'coins'}
+                        </p>
+                        
                         {pkg.bonus && (
-                          <div className="mb-3">
-                            <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">
+                          <div className="mb-4">
+                            <span className="bg-gradient-to-r from-green-500 to-emerald-600 text-white px-4 font-sans py-1.5 rounded-full text-xs font-bold shadow-md">
                               +{pkg.bonus} BONUS
                             </span>
                           </div>
                         )}
-                        <p className="text-2xl font-bold text-blue-600 mb-4">{pkg.price}</p>
+                        
+                        <p className="text-3xl font-bold bg-gradient-to-r from-amber-600 to-yellow-600 bg-clip-text text-transparent mb-6 font-sans">
+                          {pkg.price}
+                        </p>
+
+                        <div className="text-left mb-6 space-y-3 min-h-[140px]">
+                          {pkg.features?.map((feature, idx) => (
+                            <div key={idx} className="flex items-start gap-2">
+                              <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                              </svg>
+                              <span className="text-sm text-gray-700">{feature}</span>
+                            </div>
+                          ))}
+                        </div>
+                        
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handlePurchaseCoins(index);
                           }}
-                          className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                          className={`w-full py-3 rounded-xl font-bold transition-all transform hover:scale-105 shadow-lg ${
                             selectedPackage === index
-                              ? 'bg-blue-600 text-white hover:bg-blue-700'
-                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white'
+                              : pkg.isCustom
+                              ? 'bg-gradient-to-r from-purple-600 to-pink-500 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }`}
                         >
-                          Select
+                          {pkg.isCustom ? 'Contact Support' : 'Select Package'}
                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                
               </div>
             </div>
           </div>
         )}
 
-        {/* Transactions Modal */}
+
         {showTransactionsModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">

@@ -160,8 +160,6 @@ export default function Compose () {
   const [filteredGroups, setFilteredGroups] = useState<string[]>([]);
   
   // Template states
-  const [templates, setTemplates] = useState<EmailTemplate[]>(sampleTemplates);
-  const [showTemplateModal, setShowTemplateModal] = useState<boolean>(false);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState<boolean>(false);
   const [newTemplateName, setNewTemplateName] = useState<string>('');
   const [customTemplates, setCustomTemplates] = useState<EmailTemplate[]>([]);
@@ -227,13 +225,11 @@ export default function Compose () {
   // Filter groups based on search query
   useEffect(() => {
     if (groupSearchQuery.trim()) {
-      const filtered = groups.filter(g => 
-        g.toLowerCase().includes(groupSearchQuery.toLowerCase())
-      );
-      setFilteredGroups(filtered);
-    } else {
-      setFilteredGroups(groups);
-    }
+       const filtered = groups.filter(g => g.toLowerCase().includes(groupSearchQuery.toLowerCase()));
+       setFilteredGroups(filtered);
+      } else {
+       setFilteredGroups(groups);
+      }
   }, [groupSearchQuery, groups]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -395,7 +391,6 @@ export default function Compose () {
     setImageUrl(template.imageUrl || '');
     setImagePosition(template.imagePosition || 'top');
     setImageWidth(template.imageWidth || '200');
-    setShowTemplateModal(false);
     toast.success(`Template "${template.name}" loaded successfully`);
   }
 
@@ -532,8 +527,7 @@ export default function Compose () {
     let imageHtml = '';
     if (finalImageUrl) {
       if (imagePosition === 'left' || imagePosition === 'right') {
-        const imageAlign = imagePosition === 'left' ? 'left' : 'right';
-        const textAlign = imagePosition === 'left' ? 'right' : 'left';
+         
         imageHtml = `
           <table width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
@@ -858,6 +852,7 @@ export default function Compose () {
                 {(imageUrl || uploadedImage) && (
                   <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
                     <div className="flex items-center gap-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img 
                         src={uploadedImage || imageUrl} 
                         alt="Email preview" 
@@ -1103,7 +1098,7 @@ export default function Compose () {
         {/* Add Image Modal */}
         {showImageModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 overflow-y-auto max-h-[90vh]">
               <h3 className="text-lg font-semibold mb-4">Add Image to Email</h3>
               
               <div className="space-y-4">
@@ -1141,6 +1136,7 @@ export default function Compose () {
                 {(imageUrl || uploadedImage) && (
                   <div className="border border-gray-200 rounded-lg p-3">
                     <p className="text-sm font-medium text-gray-700 mb-2">Preview:</p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img 
                       src={uploadedImage || imageUrl} 
                       alt="Preview" 
