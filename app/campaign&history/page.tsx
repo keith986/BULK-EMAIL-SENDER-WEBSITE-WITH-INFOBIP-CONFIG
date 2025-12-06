@@ -122,7 +122,7 @@ export default function CampaignHistory() {
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto bg-white rounded-lg p-4 border border-gray-100">
+                    <div className="overflow-x-auto bg-white rounded-lg p-4 border border-gray-100 overflow-y-auto" style={{ maxHeight: '400px' }}>
                       <table className="w-full">
                         <thead className="bg-gray-50">
                           <tr>
