@@ -370,7 +370,7 @@ export default function AdminDashboard() {
       setUsers(users.map(u => 
         u.id === selectedUser.id ? { 
           ...u, 
-          subscriptionStatus: selectedPlan as any,
+          subscriptionStatus: selectedPlan as 'free' | 'basic' | 'pro' | 'enterprise',
           subscriptionExpiry: expiryDate.toISOString().split('T')[0],
           totalEmailsAllowed: emailLimit,
           emailsRemaining: emailLimit
@@ -508,7 +508,7 @@ export default function AdminDashboard() {
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id as 'overview' | 'users' | 'campaigns' | 'billing' | 'settings')}
             className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-300 ${
               activeTab === tab.id
                 ? 'border-blue-600 text-blue-600 font-semibold'

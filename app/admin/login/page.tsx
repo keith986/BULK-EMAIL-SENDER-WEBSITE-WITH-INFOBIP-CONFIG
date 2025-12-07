@@ -56,9 +56,9 @@ export default function AdminLogin() {
       }
       
       return !snapshot.empty;
-    } catch (err) {
+    } catch (err: unknown) {
       // If admins collection doesn't exist, fall back to email list
-      console.log('Using default admin email list');
+      console.log('Using default admin email list' + err);
       return ADMIN_EMAILS.includes(userEmail);
     }
   };
@@ -100,22 +100,23 @@ export default function AdminLogin() {
       setIsAuthenticated(true);
       router.push('/admin/dashboard');
       
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Login error:', err);
+      const error = err as { code?: string; message?: string };
       
       // Handle specific Firebase errors
-      if (err.code === 'auth/user-not-found') {
+      if (error.code === 'auth/user-not-found') {
         setError('No account found with this email address');
-      } else if (err.code === 'auth/wrong-password') {
+      } else if (error.code === 'auth/wrong-password') {
         setError('Incorrect password');
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (error.code === 'auth/invalid-email') {
         setError('Invalid email address format');
-      } else if (err.code === 'auth/user-disabled') {
+      } else if (error.code === 'auth/user-disabled') {
         setError('This account has been disabled');
-      } else if (err.code === 'auth/too-many-requests') {
+      } else if (error.code === 'auth/too-many-requests') {
         setError('Too many failed attempts. Please try again later');
       } else {
-        setError(err.message || 'Login failed. Please try again.');
+        setError(error.message || 'Login failed. Please try again.');
       }
     } finally {
       setLoading(false);
