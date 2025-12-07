@@ -43,7 +43,7 @@ export default function Protected({ children }: { children: React.ReactNode }) {
 
   if (showLoading) {
     return (
-      <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-white flex flex-col">
+      <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-white flex flex-col overflow-hidden">
         <header className="h-20 w-full border-b border-slate-200 bg-white/50 backdrop-blur-md animate-pulse flex items-center px-6">
           <div className="h-8 w-28 bg-slate-200 rounded-md" />
         </header>

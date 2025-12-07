@@ -1,9 +1,10 @@
 "use client";
 import Protected from '../_components/Protected';
-import { useState } from "react";
-import { CheckCircle, AlertCircle, Eye } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle, AlertCircle } from "lucide-react";
 import { toast, ToastContainer } from 'react-toastify';
-import {uploadApiDataToFirebase, deleteApiDataToFirebase} from '../_utils/firebase-operations';
+import { fetchApiKeyFromFirebase } from '../_utils/firebase-operations';
+//import {uploadApiDataToFirebase, deleteApiDataToFirebase} from '../_utils/firebase-operations';
 import { useUser } from '../_context/UserProvider';
 
 export default function ApiConfigPage(){
@@ -11,15 +12,32 @@ export default function ApiConfigPage(){
 const [apiKey, setApiKey] = useState('');
 const [baseUrl, setBaseUrl] = useState('https://api.infobip.com');
 const [loading, setLoading] = useState(false);
-const [isLoading, setIsLoading] = useState(false);
-const [isDeleted, setIsDeleted] = useState(false);
 const { user } = useUser();
+//const [isLoading, setIsLoading] = useState(false);
+//const [isDeleted, setIsDeleted] = useState(false);
 
+// Fetch existing API key from Firebase (if any) when component mounts
+useEffect(() => {
+    if (user?.uid) {
+      fetchApiKeyFromFirebase({ userid: user.uid })
+        .then(result => {
+          if (result.code === 777 && result.data?.apiKey) {
+            setApiKey(result.data.apiKey);
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching API key:', error);
+        });
+    }
+  }, [user?.uid]);
+
+/* Handle Toggle Eye for Api Key input
 const handleToggleEye = () => {
   const toggleeye = document.getElementById('eyelid') as HTMLInputElement | null;
   if (!toggleeye) return;
   toggleeye.type = toggleeye.type === 'password' ? 'text' : 'password';
 }
+*/
 
 const testConnection = async () => {
   try {
@@ -51,6 +69,7 @@ const testConnection = async () => {
   }
 };
 
+ /* Handle Save and Delete Api button
 const saveApiKey = async () => {
   if (!apiKey) {
     toast.info("Api Key is required!");
@@ -91,6 +110,7 @@ const handleDeleteApiKey = async () => {
     setIsDeleted(false);
   }
 }
+*/
 
   return (
     <Protected>
@@ -103,7 +123,7 @@ const handleDeleteApiKey = async () => {
         <h3 className="font-semibold text-gray-800 mb-4">Infobip API Settings</h3>
         
         <div className="space-y-6">
-          {/* API Key Input */}
+          {/* API Key Input 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Infobip API Key *
@@ -121,7 +141,7 @@ const handleDeleteApiKey = async () => {
               Get your API key from the Infobip portal at infobip.com
             </p>
           </div>
-          
+          */}
           {/* Base URL Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -138,7 +158,8 @@ const handleDeleteApiKey = async () => {
             <p className="text-sm text-gray-600 mt-2">
               Default: https://api.infobip.com (for Infobip Cloud)
             </p>
-            <div className="mt-4 flex items-center gap-4">
+            {/* Save and Delete Buttons 
+            <div className="mt-4 flex items-center gap-4 hidden">
                 <button
                   onClick={saveApiKey}
                   disabled={isLoading}
@@ -156,7 +177,8 @@ const handleDeleteApiKey = async () => {
                 ) : (
                   <span>Delete Api Key</span>
                 )}</button>
-              </div>
+            </div>
+            */}
           </div>
           
           {/* Configuration Status */}

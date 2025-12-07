@@ -47,8 +47,11 @@ export default function Navbar() {
     pathname.startsWith('/about') ||
     pathname.startsWith('/services') || 
     pathname.startsWith('/pricing') ||
-    pathname.startsWith('/contact')
+    pathname.startsWith('/contact') ||
+    pathname.startsWith('/admin/login') ||
+    pathname.startsWith('/admin/dashboard')
   ) return null;
+
 
   const handleDropDown = () => {
     /*
@@ -69,6 +72,7 @@ export default function Navbar() {
 
 
   return (
+
    <div>
 <nav className="bg-gradient-to-r from-slate-900 to-blue-900 border-none shadow-lg dark:bg-gray-900 fixed w-full z-20 top-0 left-0 border-b dark:border-gray-600">
   <div className="max-w-screen-xl flex flex-wrap items-center justify-between mx-auto p-4">
@@ -137,5 +141,6 @@ export default function Navbar() {
   </div>
 </nav>
     </div>
+
   );
 }

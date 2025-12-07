@@ -4,6 +4,7 @@ import "./globals.css";
 import Navbar from "./_components/navbar";
 import Sidebar from "./_components/sidebar";
 import UserProvider from './_context/UserProvider';
+import AdminNavbar from "./_components/AdminNavbar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,6 +32,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <UserProvider>
+          <AdminNavbar />
           <Navbar />
           <Sidebar />
           {children}

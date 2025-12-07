@@ -475,6 +475,26 @@ export const deleteApiDataToFirebase = async ({userId}: {userId: string}): Promi
   }
 }
 
+// Fetch Api Data for a user
+export const fetchApiKeyFromFirebase = async ({userid}: {userid: string}): Promise<{code: number, data?: {apiKey: string}, message?: string}> => {
+  try{
+    //check if userId exists
+    const q = query(collection(db, COLLECTION_API_NAME), where('userId', '==', userid));
+    const querySnapshot = await getDocs(q);
+    if(!querySnapshot.empty){
+      const ApiDoc = querySnapshot.docs[0];
+      const data = ApiDoc.data();
+      return {code: 777, data: {apiKey: data.apiKey} };
+    }else{
+      return {code: 101};
+    }
+  }catch(error){
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('fetchApiKeyFromFirebase error:', error);
+    return { code: 101, message };
+  }
+}
+
 // Delete Batch Settings for a user
 export const deleteBatchSettingsFromFirebase = async ({userId}: {userId: string}): Promise<{code: number, message: string}> => {
   try{
@@ -729,7 +749,6 @@ export async function updateMultipleRecipientGroups({
     };
   }
 }
-
 
 // Fetch user coins from Firebase
 export async function fetchUserCoinsFromFirebase({ 
