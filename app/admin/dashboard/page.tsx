@@ -190,7 +190,7 @@ export default function AdminDashboard() {
     setToast({ message, type });
   };
 
-  // Update loadDataFromFirebase to also load purchase requests
+// Update loadDataFromFirebase to also load purchase requests
 useEffect(() => {
   loadDataFromFirebase();
   loadPurchaseRequests();
