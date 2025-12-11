@@ -1,4 +1,4 @@
-import { addDoc, setDoc, collection, doc, getDocs, query, where, updateDoc, serverTimestamp } from "firebase/firestore";
+import { addDoc, setDoc, collection, doc, getDocs, query, where, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import {db} from '../_lib/firebase'
 import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword as firebaseSignIn } from "firebase/auth";
 import { auth } from '../_lib/firebase';
@@ -12,6 +12,7 @@ const COLLECTIONS_CLIENTS = "clients";
 const COLLECTION_GROUPS_NAME = "groups";
 const COLLECTION_COINS_NAME = "coins";
 const COLLECTION_TRANSACTIONS_NAME = "transactions";
+const COLLECTION_PURCHASE_REQUESTS = "purchaseRequests";
 
 type ClientDocument = {
   email?: string | null;
@@ -958,6 +959,263 @@ export async function useCoins({
     return {
       code: 500,
       message: 'Failed to use coins',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+
+
+// Create a purchase request (called from client payment page)
+export async function createPurchaseRequest({ 
+  userId, 
+  userEmail,
+  userName,
+  amount, 
+  price, 
+  packageInfo,
+  packageId 
+}: { 
+  userId: string;
+  userEmail: string;
+  userName: string;
+  amount: number; 
+  price: number; 
+  packageInfo: string;
+  packageId: string;
+}) {
+  try {
+    // Create purchase request
+    const requestData = {
+      userId: userId,
+      userEmail: userEmail,
+      userName: userName,
+      amount: amount,
+      price: price,
+      packageInfo: packageInfo,
+      packageId: packageId,
+      status: 'pending', // pending, approved, rejected
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    const docRef = await addDoc(collection(db, COLLECTION_PURCHASE_REQUESTS), requestData);
+
+    return {
+      code: 777,
+      message: 'Purchase request submitted successfully. Awaiting admin approval.',
+      data: { requestId: docRef.id }
+    };
+  } catch (error) {
+    console.error('Error creating purchase request:', error);
+    return {
+      code: 500,
+      message: 'Failed to create purchase request',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Fetch all purchase requests (for admin)
+export async function fetchAllPurchaseRequests() {
+  try {
+    const querySnapshot = await getDocs(collection(db, COLLECTION_PURCHASE_REQUESTS));
+
+    const requests = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate() || new Date()
+    }));
+
+    // Sort by date descending (newest first)
+    requests.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    return {
+      code: 777,
+      message: 'Purchase requests fetched successfully',
+      data: { requests }
+    };
+  } catch (error) {
+    console.error('Error fetching purchase requests:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch purchase requests',
+      error: error instanceof Error ? error.message : String(error),
+      data: { requests: [] }
+    };
+  }
+}
+
+// Fetch purchase requests for a specific user (for client to see their pending requests)
+export async function fetchUserPurchaseRequests({ userId }: { userId: string }) {
+  try {
+    const q = query(
+      collection(db, COLLECTION_PURCHASE_REQUESTS), 
+      where('userId', '==', userId)
+    );
+    const querySnapshot = await getDocs(q);
+
+    const requests = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate() || new Date()
+    }));
+
+    // Sort by date descending
+    requests.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    return {
+      code: 777,
+      message: 'User purchase requests fetched successfully',
+      data: { requests }
+    };
+  } catch (error) {
+    console.error('Error fetching user purchase requests:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch user purchase requests',
+      error: error instanceof Error ? error.message : String(error),
+      data: { requests: [] }
+    };
+  }
+}
+
+// Approve purchase request (admin action)
+export async function approvePurchaseRequest({ 
+  requestId,
+  userId,
+  amount,
+  price,
+  packageInfo,
+  packageId
+}: { 
+  requestId: string;
+  userId: string;
+  amount: number;
+  price: number;
+  packageInfo: string;
+  packageId: string;
+}) {
+  try {
+    // Get current coins
+    const q = query(collection(db, COLLECTION_COINS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+
+    let newBalance = amount;
+    
+    if (!querySnapshot.empty) {
+      const coinsDoc = querySnapshot.docs[0];
+      const data = coinsDoc.data() as { coins?: number };
+      const currentCoins = data.coins || 0;
+      newBalance = currentCoins + amount;
+
+      // Update coins
+      await updateDoc(doc(db, COLLECTION_COINS_NAME, coinsDoc.id), {
+        coins: newBalance,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // Create new coins document
+      await addDoc(collection(db, COLLECTION_COINS_NAME), {
+        userId: userId,
+        coins: amount,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    // Update user's subscription status in clients collection
+    const expiryDate = new Date();
+    expiryDate.setMonth(expiryDate.getMonth() + 1);
+
+    await updateDoc(doc(db, COLLECTIONS_CLIENTS, userId), {
+      subscriptionStatus: packageId,
+      subscriptionExpiry: expiryDate.toISOString().split('T')[0],
+      totalEmailsAllowed: amount,
+      emailsRemaining: amount,
+      updatedAt: serverTimestamp()
+    });
+
+    // Create transaction record
+    await addDoc(collection(db, COLLECTION_TRANSACTIONS_NAME), {
+      userId: userId,
+      amount: amount,
+      type: 'purchase',
+      description: `Purchased ${packageInfo} - Approved by Admin`,
+      date: serverTimestamp(),
+      status: 'completed',
+      price: price,
+      packageInfo: packageInfo
+    });
+
+    // Update purchase request status
+    await updateDoc(doc(db, COLLECTION_PURCHASE_REQUESTS, requestId), {
+      status: 'approved',
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    return {
+      code: 777,
+      message: 'Purchase request approved successfully',
+      data: { newBalance, amount }
+    };
+  } catch (error) {
+    console.error('Error approving purchase request:', error);
+    return {
+      code: 500,
+      message: 'Failed to approve purchase request',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Reject purchase request (admin action)
+export async function rejectPurchaseRequest({ 
+  requestId,
+  rejectionReason
+}: { 
+  requestId: string;
+  rejectionReason?: string;
+}) {
+  try {
+    await updateDoc(doc(db, COLLECTION_PURCHASE_REQUESTS, requestId), {
+      status: 'rejected',
+      rejectionReason: rejectionReason || 'No reason provided',
+      rejectedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    return {
+      code: 777,
+      message: 'Purchase request rejected successfully'
+    };
+  } catch (error) {
+    console.error('Error rejecting purchase request:', error);
+    return {
+      code: 500,
+      message: 'Failed to reject purchase request',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Delete purchase request (admin cleanup)
+export async function deletePurchaseRequest({ requestId }: { requestId: string }) {
+  try {
+    await deleteDoc(doc(db, COLLECTION_PURCHASE_REQUESTS, requestId));
+
+    return {
+      code: 777,
+      message: 'Purchase request deleted successfully'
+    };
+  } catch (error) {
+    console.error('Error deleting purchase request:', error);
+    return {
+      code: 500,
+      message: 'Failed to delete purchase request',
       error: error instanceof Error ? error.message : String(error)
     };
   }

@@ -35,6 +35,7 @@ export default function AdminNavbar() {
     pathname.startsWith('/compose&send') ||
     pathname.startsWith('/add-recipients') ||
     pathname.startsWith('/recipients') ||
+    pathname.startsWith('/payment') ||
     pathname.startsWith('/batch-settings') ||
     pathname.startsWith('/api-config') ||
     pathname.startsWith('/campaign&history') 
