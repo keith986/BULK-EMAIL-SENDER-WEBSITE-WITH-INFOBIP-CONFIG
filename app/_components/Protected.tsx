@@ -5,7 +5,6 @@ import { useUser } from '../_context/UserProvider';
 
 export default function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useUser();
-  console.log('Protected user:', user);
   // keep the loading UI visible for at least this many ms so the user sees the spinner
   const MIN_LOADING_MS = 1000; // 1s
   const startRef = useRef<number | null>(null);
