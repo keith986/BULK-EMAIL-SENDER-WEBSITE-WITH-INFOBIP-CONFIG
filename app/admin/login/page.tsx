@@ -5,6 +5,7 @@ import { Shield, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth, db } from '../../_lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import { useUser } from '../../_context/UserProvider';
 
 const ADMIN_EMAILS = [
   'admin@example.com',
@@ -21,18 +22,27 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { user, signOut } = useUser()
 
   useEffect(() => {
     // Check if already authenticated as admin
     const checkAuth = async () => {
-      const user = auth.currentUser;
-      if (user && ADMIN_EMAILS.includes(user.email || '')) {
+      const userA = auth.currentUser;
+      if (userA && ADMIN_EMAILS.includes(userA.email || '')) {
+        if(user?.profile?.role === 'admin'){
         setIsAuthenticated(true);
         router.push('/admin/dashboard');
+        }else{
+          router.push('/dashboard')
+        }
+      }else{
+        await signOut();
+        setIsAuthenticated(false);
+        router.push('/admin/login');
       }
     };
     checkAuth();
-  }, [router]);
+  }, [router, signOut, user]);
 
   const validateAdmin = async (userEmail: string): Promise<boolean> => {
     // Check if email is in the admin list

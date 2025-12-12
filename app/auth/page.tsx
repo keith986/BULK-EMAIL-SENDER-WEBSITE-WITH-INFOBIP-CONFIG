@@ -16,15 +16,27 @@ export default function AuthPage() {
     passcode: ''
   })
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const { user, loading: userLoading } = useUser();
+  const { user, signOut, loading: userLoading } = useUser();
 
   // If the user is already signed-in, redirect off this page
   useEffect(() => {
-    if (!userLoading && user) {
+    const validateUser = async () => {
+      if (!userLoading && user) {
       // already signed in — send to dashboard
+      if (user.profile?.role === 'customer'){
       router.replace('/dashboard');
+      }else{
+      router.replace('/admin/dashboard');
+      }
+    }else{
+        await signOut();
+        router.push('/auth');
     }
-  }, [user, userLoading, router]);
+    }
+
+    validateUser();
+    
+  }, [user, userLoading, router, signOut]);
 
   const [showPassword, setShowPassword] = useState<boolean>(false);
 

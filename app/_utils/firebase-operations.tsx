@@ -1,4 +1,4 @@
-import { addDoc, setDoc, collection, doc, getDocs, query, where, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { addDoc, setDoc, collection, doc, getDocs, query, where, updateDoc, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import {db} from '../_lib/firebase'
 import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword as firebaseSignIn } from "firebase/auth";
 import { auth } from '../_lib/firebase';
@@ -13,6 +13,15 @@ const COLLECTION_GROUPS_NAME = "groups";
 const COLLECTION_COINS_NAME = "coins";
 const COLLECTION_TRANSACTIONS_NAME = "transactions";
 const COLLECTION_PURCHASE_REQUESTS = "purchaseRequests";
+
+// Define contact limits for each package
+export const PACKAGE_LIMITS = {
+  'free': 1,
+  '2000c': 2000,
+  '6000c': 2000,
+  '10000c': 2000,
+  'customc': Infinity
+} as const;
 
 type ClientDocument = {
   email?: string | null;
@@ -362,7 +371,8 @@ export const signUpWithEmailandPassword = async ({username, email, password}: {u
       email,
       displayName: username || '',
       hashedPassword: hashed,
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      role: 'customer'
     });
 
     return { code: 777, message: 'signed up successfully.', uid: user.uid };
@@ -388,7 +398,8 @@ export const signUpWithGoogleAccount = async () : Promise<{code: number, message
       email: user.email,
       displayName: user.displayName || '',
       hashedPassword: null,
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      role: 'customer'
     });
 
     return { code: 777, message: 'signed up successfully.', uid: user.uid };
@@ -964,8 +975,6 @@ export async function useCoins({
   }
 }
 
-
-
 // Create a purchase request (called from client payment page)
 export async function createPurchaseRequest({ 
   userId, 
@@ -1218,5 +1227,207 @@ export async function deletePurchaseRequest({ requestId }: { requestId: string }
       message: 'Failed to delete purchase request',
       error: error instanceof Error ? error.message : String(error)
     };
+  }
+}
+
+// Get user's contact limit based on their subscription
+export async function getUserContactLimit({ 
+  userId 
+}: { 
+  userId: string 
+}): Promise<{
+  code: number;
+  data?: {
+    limit: number;
+    currentCount: number;
+    remaining: number;
+    subscriptionStatus: string;
+    canAddMore: boolean;
+  };
+  message: string;
+}> {
+  try {
+    // Fetch user's subscription status
+    const userDoc = await getDoc(doc(db, 'clients', userId));
+    if (!userDoc.exists()) {
+      return {
+        code: 404,
+        message: 'User not found'
+      };
+    }
+
+    const userData = userDoc.data();
+    const subscriptionStatus = userData.subscriptionStatus || 'free';
+    const limit = PACKAGE_LIMITS[subscriptionStatus as keyof typeof PACKAGE_LIMITS] || 500;
+
+    // Fetch current recipient count
+    let currentCount = 0;
+    const recipientsDoc = await getDoc(doc(db, 'recipients', userId));
+    if (recipientsDoc.exists()) {
+      const recipientsData = recipientsDoc.data();
+      currentCount = recipientsData.totalCount || 0;
+    }
+
+    const remaining = limit === Infinity ? Infinity : Math.max(0, limit - currentCount);
+    const canAddMore = remaining > 0;
+
+    return {
+      code: 777,
+      data: {
+        limit,
+        currentCount,
+        remaining,
+        subscriptionStatus,
+        canAddMore
+      },
+      message: 'Contact limit fetched successfully'
+    };
+  } catch (error) {
+    console.error('Error fetching user contact limit:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch contact limit'
+    };
+  }
+}
+
+// Check if user can add specific number of recipients
+export async function canAddRecipients({ 
+  userId, 
+  count 
+}: { 
+  userId: string; 
+  count: number;
+}): Promise<{
+  code: number;
+  data?: {
+    canAdd: boolean;
+    limit: number;
+    currentCount: number;
+    remaining: number;
+    exceededBy?: number;
+  };
+  message: string;
+}> {
+  try {
+    const limitResult = await getUserContactLimit({ userId });
+    
+    if (limitResult.code !== 777 || !limitResult.data) {
+      return {
+        code: limitResult.code,
+        message: limitResult.message
+      };
+    }
+
+    const { limit, currentCount, remaining } = limitResult.data;
+    const canAdd = remaining >= count;
+    const exceededBy = canAdd ? 0 : count - remaining;
+
+    return {
+      code: 777,
+      data: {
+        canAdd,
+        limit,
+        currentCount,
+        remaining,
+        exceededBy
+      },
+      message: canAdd 
+        ? 'Can add recipients' 
+        : `Cannot add ${count} recipients. Exceeds limit by ${exceededBy}.`
+    };
+  } catch (error) {
+    console.error('Error checking if can add recipients:', error);
+    return {
+      code: 500,
+      message: 'Failed to check recipient limit'
+    };
+  }
+}
+
+// Updated uploadRecipientsToFirebase with limit checking
+export const uploadRecipientsToFirebaseWithLimit = async ({
+  userId, 
+  recipients, 
+  totalCount, 
+  rawText
+}: {
+  userId: string, 
+  recipients: Array<{name: string, email: string}>, 
+  totalCount: number, 
+  rawText: string
+}): Promise<{code: number, message: string, added?: number}> => {
+  try {
+    // First check if user can add these recipients
+    const limitCheck = await canAddRecipients({ userId, count: totalCount });
+    
+    if (limitCheck.code !== 777 || !limitCheck.data?.canAdd) {
+      return {
+        code: 403,
+        message: limitCheck.message + ` Please upgrade your package to add more contacts.`
+      };
+    }
+
+    // If limit check passes, proceed with the original upload logic
+    const q = query(collection(db, COLLECTION_RECIPIENTS_NAME), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+    
+    if (!querySnapshot.empty) {
+      const existingDoc = querySnapshot.docs[0];
+      const data = existingDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
+      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
+
+      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ name: r.name ?? '', email: String(r.email).trim() })) : [];
+
+      const existingMap = new Map<string, { name?: string; email: string }>();
+      for (const r of existingList) {
+        if (!r?.email) continue;
+        existingMap.set(String(r.email).toLowerCase(), { name: r.name, email: String(r.email) });
+      }
+
+      let addedCount = 0;
+      for (const inc of incoming) {
+        const key = inc.email.toLowerCase();
+        if (!existingMap.has(key)) {
+          existingMap.set(key, { name: inc.name || '', email: inc.email });
+          addedCount++;
+        }
+      }
+
+      const merged = Array.from(existingMap.values());
+
+      // Final check: ensure merged total doesn't exceed limit
+      const finalCheck = await canAddRecipients({ userId, count: merged.length - existingList.length });
+      if (finalCheck.code !== 777 || !finalCheck.data?.canAdd) {
+        return {
+          code: 403,
+          message: `Cannot add recipients. Would exceed contact limit.`
+        };
+      }
+
+      await updateDoc(doc(db, COLLECTION_RECIPIENTS_NAME, existingDoc.id), {
+        recipients: merged,
+        totalCount: merged.length,
+        rawText: merged.map(r => r.email).join('\n'),
+        updatedAt: serverTimestamp()
+      });
+
+      return { code: 777, message: `Recipients updated — ${addedCount} new added.`, added: addedCount };
+    } else {
+      const recipientsData = {
+        userId: userId,
+        recipients: recipients,
+        totalCount: totalCount,
+        rawText: rawText,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await addDoc(collection(db, COLLECTION_RECIPIENTS_NAME), recipientsData);
+      return { code: 777, message: 'Recipients list has been saved successfully.', added: recipientsData.recipients?.length ?? 0 };
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('uploadRecipientsToFirebaseWithLimit error:', error);
+    return { code: 101, message };
   }
 }

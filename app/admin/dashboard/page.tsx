@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, CheckCircle, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
 import { collection, getDocs, query, where, updateDoc, doc, deleteDoc, setDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
+import AdminProtected  from '../../_components/AdminProtected'
+import { deletePurchaseRequest } from '../../_utils/firebase-operations';
 
 interface User {
   id: string;
@@ -671,7 +673,6 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
   if (!confirm('Delete this purchase request? This action cannot be undone.')) return;
 
   try {
-    const { deletePurchaseRequest } = await import('../../_utils/firebase-operations');
     const result = await deletePurchaseRequest({ requestId });
 
     if (result.code === 777) {
@@ -687,6 +688,7 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
 };
 
   return (
+    <AdminProtected>
     <div className="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen p-4">
       {toast && (
         <Toast
@@ -696,7 +698,7 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
         />
       )}
       
-      <div className="mb-6 mt-10">
+      <div className="mb-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-800">Admin Dashboard</h1>
@@ -2031,5 +2033,6 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
 )}
 
     </div>
+    </AdminProtected>
   );
 }
