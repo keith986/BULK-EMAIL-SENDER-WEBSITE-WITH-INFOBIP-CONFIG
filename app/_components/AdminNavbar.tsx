@@ -55,7 +55,7 @@ export default function AdminNavbar() {
   return (
     <>
       {/* Desktop Navbar */}
-      <nav className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-50 shadow-sm ">
+      <nav className="fixed top-0 left-0 right-0 bg-slate-100 border-b border-gray-200 z-50 shadow-sm ">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Left Section - Logo and Navigation */}
@@ -122,7 +122,7 @@ export default function AdminNavbar() {
         </div>
       </nav>
       {/* Spacer to prevent content from going under fixed navbar */}
-      <div className="h-16" />
+      <div className="h-8 bg-slate-600" />
     </>
   );
 }
