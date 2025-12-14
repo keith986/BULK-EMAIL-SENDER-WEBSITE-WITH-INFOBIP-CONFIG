@@ -1,4 +1,4 @@
-import { addDoc, setDoc, collection, doc, getDocs, query, where, updateDoc, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { addDoc, setDoc, collection, doc, getDocs, query, where, updateDoc, deleteDoc, serverTimestamp, getDoc, orderBy, limit } from "firebase/firestore";
 import {db} from '../_lib/firebase'
 import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword as firebaseSignIn } from "firebase/auth";
 import { auth } from '../_lib/firebase';
@@ -13,6 +13,9 @@ const COLLECTION_GROUPS_NAME = "groups";
 const COLLECTION_COINS_NAME = "coins";
 const COLLECTION_TRANSACTIONS_NAME = "transactions";
 const COLLECTION_PURCHASE_REQUESTS = "purchaseRequests";
+const COLLECTION_OTP_NAME = "otps";
+const COLLECTION_ADMIN_LOGS_NAME = "adminLoginLogs";
+const COLLECTION_CLIENT_LOGS_NAME = "clientLoginLogs";
 
 // Define contact limits for each package
 export const PACKAGE_LIMITS = {
@@ -28,6 +31,28 @@ type ClientDocument = {
   displayName?: string | null;
   hashedPassword?: string | null;
 };
+
+interface AdminLoginLog {
+  adminEmail: string;
+  ipAddress?: string;
+  userAgent?: string;
+  location?: string;
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  failureReason?: string;
+  timestamp: Date;
+  sessionDuration?: number;
+}
+
+interface ClientLoginLog {
+  userEmail: string;
+  ipAddress?: string;
+  userAgent?: string;
+  location?: string;
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  failureReason?: string;
+  timestamp: Date;
+  sessionDuration?: number;
+}
 
 export const uploadApiDataToFirebase = async ({userId, apiKey}: {userId: string, apiKey: string}): Promise<{code: number, message: string}> => {
   try {
@@ -358,34 +383,7 @@ export const removeRecipientsFromFirebase = async ({ userId, emails }: { userId:
   }
 }
 
-//sign up with email and password
-export const signUpWithEmailandPassword = async ({username, email, password}: {username: string, email: string, password: string}): Promise<{code: number, message: string, uid?: string, errorCode?: string | null}> => {
-  try {
-    // Create the user in Firebase Authentication
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    // Hash the password before storing it in Firestore (we still pass plaintext to Firebase Auth)
-    const hashed = await hashPassword(password);
-    await setDoc(doc(db, COLLECTIONS_CLIENTS, user.uid), {
-      email,
-      displayName: username || '',
-      hashedPassword: hashed,
-      createdAt: serverTimestamp(),
-      role: 'customer'
-    });
-
-    return { code: 777, message: 'signed up successfully.', uid: user.uid };
-  } catch (error: unknown) {
-    // Log to console and return consistent structure for the UI to display
-    const message = error instanceof Error ? error.message : String(error);
-    const errorCode = (error as { code?: string } | undefined)?.code ?? null;
-    console.error('signUpWithEmailandPassword error:', error);
-    return { code: 101, message, errorCode };
-  }
-}
-
-//sign up with google account
+/*sign up with google account
 export const signUpWithGoogleAccount = async () : Promise<{code: number, message: string, uid?: string, errorCode?: string | null}> => {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
@@ -410,6 +408,7 @@ export const signUpWithGoogleAccount = async () : Promise<{code: number, message
     return { code: 101, message, errorCode };
   }
 }
+*/
 
 // Update client profile (displayName and optional password)
 export const updateClientProfile = async ({ userId, displayName, password }: { userId: string; displayName?: string | null; password?: string | null }): Promise<{ code: number; message: string }> => {
@@ -981,7 +980,6 @@ export async function createPurchaseRequest({
   userEmail,
   userName,
   amount, 
-  price, 
   packageInfo,
   packageId 
 }: { 
@@ -989,7 +987,6 @@ export async function createPurchaseRequest({
   userEmail: string;
   userName: string;
   amount: number; 
-  price: number; 
   packageInfo: string;
   packageId: string;
 }) {
@@ -1000,7 +997,6 @@ export async function createPurchaseRequest({
       userEmail: userEmail,
       userName: userName,
       amount: amount,
-      price: price,
       packageInfo: packageInfo,
       packageId: packageId,
       status: 'pending', // pending, approved, rejected
@@ -1096,14 +1092,12 @@ export async function approvePurchaseRequest({
   requestId,
   userId,
   amount,
-  price,
   packageInfo,
   packageId
 }: { 
   requestId: string;
   userId: string;
   amount: number;
-  price: number;
   packageInfo: string;
   packageId: string;
 }) {
@@ -1155,7 +1149,6 @@ export async function approvePurchaseRequest({
       description: `Purchased ${packageInfo} - Approved by Admin`,
       date: serverTimestamp(),
       status: 'completed',
-      price: price,
       packageInfo: packageInfo
     });
 
@@ -1429,5 +1422,582 @@ export const uploadRecipientsToFirebaseWithLimit = async ({
     const message = error instanceof Error ? error.message : String(error);
     console.error('uploadRecipientsToFirebaseWithLimit error:', error);
     return { code: 101, message };
+  }
+}
+
+// Generate a 6-digit OTP
+function generateOTP(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Generate a random password for OTP users
+function generateRandomPassword(): string {
+  return Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16) + Date.now().toString(36);
+}
+
+// Store OTP in Firestore
+export const createOTP = async ({ 
+  email 
+}: { 
+  email: string 
+}): Promise<{ code: number; message: string; otp?: string }> => {
+  try {
+    const otp = generateOTP();
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // OTP valid for 10 minutes
+
+    // Delete any existing OTPs for this email
+    const q = query(collection(db, COLLECTION_OTP_NAME), where('email', '==', email));
+    const existingOTPs = await getDocs(q);
+    
+    for (const doc of existingOTPs.docs) {
+      await deleteDoc(doc.ref);
+    }
+
+    // Create new OTP document
+    await addDoc(collection(db, COLLECTION_OTP_NAME), {
+      email: email,
+      otp: otp,
+      expiresAt: expiresAt.toISOString(),
+      createdAt: serverTimestamp(),
+      verified: false
+    });
+
+    return { 
+      code: 777, 
+      message: 'OTP created successfully',
+      otp: otp 
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('createOTP error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Verify OTP
+export const verifyOTP = async ({ 
+  email, 
+  otp 
+}: { 
+  email: string; 
+  otp: string 
+}): Promise<{ code: number; message: string; isNewUser?: boolean }> => {
+  try {
+    // Find OTP document for this email
+    const q = query(
+      collection(db, COLLECTION_OTP_NAME), 
+      where('email', '==', email),
+      where('otp', '==', otp),
+      where('verified', '==', false)
+    );
+    
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      return { code: 404, message: 'Invalid or expired OTP' };
+    }
+
+    const otpDoc = querySnapshot.docs[0];
+    const otpData = otpDoc.data();
+    
+    // Check if OTP has expired
+    const expiresAt = new Date(otpData.expiresAt);
+    if (expiresAt < new Date()) {
+      await deleteDoc(otpDoc.ref);
+      return { code: 401, message: 'OTP has expired' };
+    }
+
+    // Check if user exists
+    const userQuery = query(collection(db, COLLECTIONS_CLIENTS), where('email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+    const isNewUser = userSnapshot.empty;
+
+    // Mark OTP as verified
+    await updateDoc(otpDoc.ref, {
+      verified: true,
+      verifiedAt: serverTimestamp()
+    });
+
+    // Clean up - delete the OTP after verification
+    await deleteDoc(otpDoc.ref);
+
+    return { 
+      code: 777, 
+      message: 'OTP verified successfully',
+      isNewUser: isNewUser
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('verifyOTP error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Create user account after OTP verification (for new users)
+export const createUserWithOTP = async ({ 
+  email, 
+  displayName 
+}: { 
+  email: string; 
+  displayName?: string 
+}): Promise<{ code: number; message: string; uid?: string }> => {
+  try {
+    // Check if user already exists in Firestore
+    const userQuery = query(collection(db, COLLECTIONS_CLIENTS), where('email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+    
+    if (!userSnapshot.empty) {
+      return { code: 400, message: 'User already exists' };
+    }
+
+    // Generate a random password for Firebase Auth
+    const randomPassword = generateRandomPassword();
+    
+    // Create user in Firebase Authentication
+    const userCredential = await createUserWithEmailAndPassword(auth, email, randomPassword);
+    const user = userCredential.user;
+
+    // Hash the random password for storage
+    const hashedPassword = await hashPassword(randomPassword);
+
+    // Create user document in Firestore with the Firebase Auth UID
+    await setDoc(doc(db, COLLECTIONS_CLIENTS, user.uid), {
+      email: email,
+      displayName: displayName || '',
+      hashedPassword: hashedPassword, // Store hashed random password
+      createdAt: serverTimestamp(),
+      role: 'customer',
+      authMethod: 'otp',
+      otpPassword: randomPassword // Store plaintext temporarily (will be used for auto-login)
+    });
+
+    // Automatically sign in the user
+    await firebaseSignIn(auth, email, randomPassword);
+
+    return { 
+      code: 777, 
+      message: 'Account created successfully',
+      uid: user.uid
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('createUserWithOTP error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Sign in existing OTP user
+export const signInOTPUser = async ({ 
+  email 
+}: { 
+  email: string 
+}): Promise<{ code: number; message: string; uid?: string }> => {
+  try {
+    // Get user from Firestore
+    const userQuery = query(collection(db, COLLECTIONS_CLIENTS), where('email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+    
+    if (userSnapshot.empty) {
+      return { code: 404, message: 'User not found' };
+    }
+
+    const userDoc = userSnapshot.docs[0];
+    const userData = userDoc.data();
+    
+    // Get the stored OTP password
+    const otpPassword = userData.otpPassword;
+    
+    if (!otpPassword) {
+      // If no OTP password stored, user might have used traditional signup
+      return { code: 400, message: 'Please use password login for this account' };
+    }
+
+    // Sign in with the stored password
+    const userCredential = await firebaseSignIn(auth, email, otpPassword);
+    
+    return { 
+      code: 777, 
+      message: 'Signed in successfully',
+      uid: userCredential.user.uid
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('signInOTPUser error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Get user by email (for checking if user exists)
+export const getUserByEmail = async ({ 
+  email 
+}: { 
+  email: string 
+}): Promise<{ code: number; message: string; uid?: string; userData?: Record<string, unknown> }> => {
+  try {
+    const userQuery = query(collection(db, COLLECTIONS_CLIENTS), where('email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+    
+    if (userSnapshot.empty) {
+      return { code: 404, message: 'User not found' };
+    }
+
+    const userDoc = userSnapshot.docs[0];
+    return { 
+      code: 777, 
+      message: 'User found',
+      uid: userDoc.id,
+      userData: userDoc.data()
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('getUserByEmail error:', error);
+    return { code: 101, message };
+  }
+}
+
+// Log admin login attempt
+export const logAdminLogin = async ({
+  adminEmail,
+  status,
+  failureReason,
+  ipAddress,
+  userAgent,
+  location
+}: {
+  adminEmail: string;
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  failureReason?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  location?: string;
+}): Promise<{ code: number; message: string }> => {
+  try {
+    await addDoc(collection(db, COLLECTION_ADMIN_LOGS_NAME), {
+      adminEmail,
+      status,
+      failureReason: failureReason || null,
+      ipAddress: ipAddress || 'Unknown',
+      userAgent: userAgent || 'Unknown',
+      location: location || 'Unknown',
+      timestamp: serverTimestamp(),
+      createdAt: new Date().toISOString()
+    });
+
+    return { code: 777, message: 'Login logged successfully' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('logAdminLogin error:', error);
+    return { code: 101, message };
+  }
+};
+
+// Fetch admin login logs
+export const fetchAdminLoginLogs = async ({
+  limitCount = 100,
+  adminEmail
+}: {
+  limitCount?: number;
+  adminEmail?: string;
+} = {}): Promise<{
+  code: number;
+  data?: AdminLoginLog[];
+  message: string;
+}> => {
+  try {
+    let q;
+    
+    if (adminEmail) {
+      q = query(
+        collection(db, COLLECTION_ADMIN_LOGS_NAME),
+        where('adminEmail', '==', adminEmail),
+        orderBy('timestamp', 'desc'),
+        limit(limitCount)
+      );
+    } else {
+      q = query(
+        collection(db, COLLECTION_ADMIN_LOGS_NAME),
+        orderBy('timestamp', 'desc'),
+        limit(limitCount)
+      );
+    }
+
+    const querySnapshot = await getDocs(q);
+    
+    const logs: AdminLoginLog[] = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        adminEmail: data.adminEmail,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        location: data.location,
+        status: data.status,
+        failureReason: data.failureReason,
+        timestamp: data.timestamp?.toDate() || new Date(data.createdAt),
+        sessionDuration: data.sessionDuration
+      };
+    });
+
+    return {
+      code: 777,
+      data: logs,
+      message: 'Logs fetched successfully'
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('fetchAdminLoginLogs error:', error);
+    return { code: 101, message };
+  }
+};
+
+// Get login statistics
+export const getAdminLoginStats = async (): Promise<{
+  code: number;
+  data?: {
+    totalLogins: number;
+    successfulLogins: number;
+    failedLogins: number;
+    uniqueAdmins: number;
+    recentActivity: number; // Last 24 hours
+  };
+  message: string;
+}> => {
+  try {
+    const querySnapshot = await getDocs(collection(db, COLLECTION_ADMIN_LOGS_NAME));
+    
+    const logs = querySnapshot.docs.map(doc => doc.data());
+    const totalLogins = logs.length;
+    const successfulLogins = logs.filter(log => log.status === 'success').length;
+    const failedLogins = logs.filter(log => log.status === 'failed').length;
+    const uniqueAdmins = new Set(logs.map(log => log.adminEmail)).size;
+    
+    // Recent activity (last 24 hours)
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const recentActivity = logs.filter(log => {
+      const logDate = log.timestamp?.toDate?.() || new Date(log.createdAt);
+      return logDate >= yesterday;
+    }).length;
+
+    return {
+      code: 777,
+      data: {
+        totalLogins,
+        successfulLogins,
+        failedLogins,
+        uniqueAdmins,
+        recentActivity
+      },
+      message: 'Stats fetched successfully'
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('getAdminLoginStats error:', error);
+    return { code: 101, message };
+  }
+};
+
+// Helper function to get user's IP and location (client-side)
+export const getUserLocationData = async (): Promise<{
+  ipAddress: string;
+  location: string;
+  userAgent: string;
+}> => {
+  try {
+    // Get IP and location from ipapi.co
+    const response = await fetch('https://ipapi.co/json/');
+    const data = await response.json();
+    
+    return {
+      ipAddress: data.ip || 'Unknown',
+      location: `${data.city}, ${data.country_name}` || 'Unknown',
+      userAgent: navigator.userAgent || 'Unknown'
+    };
+  } catch (error) {
+    console.error('Error fetching location data:', error);
+    return {
+      ipAddress: 'Unknown',
+      location: 'Unknown',
+      userAgent: navigator.userAgent || 'Unknown'
+    };
+  }
+};
+
+// Log client login attempt
+export const logClientLogin = async ({
+  userEmail,
+  status,
+  failureReason,
+  ipAddress,
+  userAgent,
+  location
+}: {
+  userEmail: string;
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  failureReason?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  location?: string;
+}): Promise<{ code: number; message: string; logId?: string }> => {
+  try {
+    const docRef = await addDoc(collection(db, COLLECTION_CLIENT_LOGS_NAME), {
+      userEmail,
+      status,
+      failureReason: failureReason || null,
+      ipAddress: ipAddress || 'Unknown',
+      userAgent: userAgent || 'Unknown',
+      location: location || 'Unknown',
+      timestamp: serverTimestamp(),
+      createdAt: new Date().toISOString()
+    });
+
+    return { code: 777, message: 'Login logged successfully', logId: docRef.id };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('logClientLogin error:', error);
+    return { code: 101, message };
+  }
+};
+
+export const fetchClientLoginLogs = async ({
+  userEmail,
+  limitCount = 10
+}: {
+  userEmail: string;
+  limitCount?: number;
+}): Promise<{
+  code: number;
+  data?: ClientLoginLog[];
+  message: string;
+}> => {
+  try {
+    // Fetch all logs for the user WITHOUT ordering (to avoid index requirement)
+    const q = query(
+      collection(db, COLLECTION_CLIENT_LOGS_NAME),
+      where('userEmail', '==', userEmail)
+    );
+
+    const querySnapshot = await getDocs(q);
+    
+    // Sort in memory instead of using Firestore ordering
+    const logs: ClientLoginLog[] = querySnapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        return {
+          userEmail: data.userEmail,
+          ipAddress: data.ipAddress,
+          userAgent: data.userAgent,
+          location: data.location,
+          status: data.status,
+          failureReason: data.failureReason,
+          timestamp: data.timestamp?.toDate() || new Date(data.createdAt),
+          sessionDuration: data.sessionDuration
+        };
+      })
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()) // Sort newest first
+      .slice(0, limitCount); // Limit results
+
+    return {
+      code: 777,
+      data: logs,
+      message: 'Logs fetched successfully'
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('fetchClientLoginLogs error:', error);
+    return { code: 101, message };
+  }
+};
+
+// Get client login statistics
+export const getClientLoginStats = async ({ 
+  userEmail 
+}: { 
+  userEmail: string 
+}): Promise<{
+  code: number;
+  data?: {
+    totalLogins: number;
+    successfulLogins: number;
+    failedLogins: number;
+    recentActivity: number; // Last 7 days
+    lastSuccessfulLogin?: Date;
+  };
+  message: string;
+}> => {
+  try {
+    const q = query(
+      collection(db, COLLECTION_CLIENT_LOGS_NAME),
+      where('userEmail', '==', userEmail)
+    );
+    const querySnapshot = await getDocs(q);
+    
+    const logs = querySnapshot.docs.map(doc => doc.data());
+    const totalLogins = logs.filter(log => log.status === 'success' || log.status === 'failed').length;
+    const successfulLogins = logs.filter(log => log.status === 'success').length;
+    const failedLogins = logs.filter(log => log.status === 'failed').length;
+    
+    // Recent activity (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const recentActivity = logs.filter(log => {
+      const logDate = log.timestamp?.toDate?.() || new Date(log.createdAt);
+      return logDate >= sevenDaysAgo;
+    }).length;
+
+    // Last successful login
+    const successfulLoginLogs = logs
+      .filter(log => log.status === 'success')
+      .map(log => ({
+        ...log,
+        timestamp: log.timestamp?.toDate?.() || new Date(log.createdAt)
+      }))
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    
+    const lastSuccessfulLogin = successfulLoginLogs.length > 0 
+      ? successfulLoginLogs[0].timestamp 
+      : undefined;
+
+    return {
+      code: 777,
+      data: {
+        totalLogins,
+        successfulLogins,
+        failedLogins,
+        recentActivity,
+        lastSuccessfulLogin
+      },
+      message: 'Stats fetched successfully'
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('getClientLoginStats error:', error);
+    return { code: 101, message };
+  }
+};
+
+// Update signUpWithGoogleAccount to return email
+export const signUpWithGoogleAccount = async () : Promise<{code: number, message: string, uid?: string, email?: string, errorCode?: string | null}> => {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+
+    await setDoc(doc(db, COLLECTIONS_CLIENTS, user.uid), {
+      email: user.email,
+      displayName: user.displayName || '',
+      hashedPassword: null,
+      createdAt: serverTimestamp(),
+      role: 'customer'
+    });
+
+    return { code: 777, message: 'signed up successfully.', uid: user.uid, email: user.email || undefined };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as { code?: string } | undefined)?.code ?? null;
+    console.error('signUpWithGoogleAccount error:', error);
+    return { code: 101, message, errorCode };
   }
 }

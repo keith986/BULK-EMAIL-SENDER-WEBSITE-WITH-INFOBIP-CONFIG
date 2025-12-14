@@ -32,7 +32,7 @@ export default function Protected({ children }: { children: React.ReactNode }) {
       timer = setTimeout(() => {
         setShowLoading(false);
         // only redirect after we've ensured the loading UI was visible for the minimum time
-        if (!user) router.replace('/auth');
+        if (!user || user.profile?.role !== 'customer') router.replace('/auth');
 
       }, remaining);
     }

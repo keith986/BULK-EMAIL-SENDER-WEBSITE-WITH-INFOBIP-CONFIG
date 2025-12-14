@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, CheckCircle, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
+import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity, MapPin, Monitor, CheckCircle, AlertCircle, ClockIcon, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
 import { collection, getDocs, query, where, updateDoc, doc, deleteDoc, setDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
 import AdminProtected  from '../../_components/AdminProtected'
@@ -29,7 +29,6 @@ interface PurchaseRequest {
   userEmail: string;
   userName: string;
   amount: number;
-  price: number;
   packageInfo: string;
   packageId: string;
   status: 'pending' | 'approved' | 'rejected';
@@ -154,7 +153,7 @@ const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 
 };
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'campaigns' | 'billing' | 'requests' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'campaigns' | 'billing' | 'requests' | 'logs' | 'settings'>('overview');
   const [users, setUsers] = useState<User[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [stats, setStats] = useState<Stats>({
@@ -187,6 +186,29 @@ export default function AdminDashboard() {
   const [showRequestDetailsModal, setShowRequestDetailsModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [adminLogs, setAdminLogs] = useState<Array<{
+  adminEmail: string;
+  ipAddress?: string;
+  userAgent?: string;
+  location?: string;
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  failureReason?: string;
+  timestamp: Date;
+}>>([]);
+
+const [loginStats, setLoginStats] = useState<{
+  totalLogins: number;
+  successfulLogins: number;
+  failedLogins: number;
+  uniqueAdmins: number;
+  recentActivity: number;
+}>({
+  totalLogins: 0,
+  successfulLogins: 0,
+  failedLogins: 0,
+  uniqueAdmins: 0,
+  recentActivity: 0
+});
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
     setToast({ message, type });
@@ -196,7 +218,27 @@ export default function AdminDashboard() {
 useEffect(() => {
   loadDataFromFirebase();
   loadPurchaseRequests();
+  loadAdminLogs();
 }, []);
+
+const loadAdminLogs = async () => {
+  try {
+    const { fetchAdminLoginLogs, getAdminLoginStats } = await import('../../_utils/firebase-operations');
+    
+    const logsResult = await fetchAdminLoginLogs({ limitCount: 100 });
+    if (logsResult.code === 777 && logsResult.data) {
+      setAdminLogs(logsResult.data);
+    }
+
+    const statsResult = await getAdminLoginStats();
+    if (statsResult.code === 777 && statsResult.data) {
+      setLoginStats(statsResult.data);
+    }
+  } catch (error) {
+    console.error('Error loading admin logs:', error);
+    showToast('Error loading admin activity logs', 'error');
+  }
+};
 
   const loadDataFromFirebase = async () => {
     setLoading(true);
@@ -621,7 +663,6 @@ const handleApprovePurchaseRequest = async (request: PurchaseRequest) => {
       requestId: request.id,
       userId: request.userId,
       amount: request.amount,
-      price: request.price,
       packageInfo: request.packageInfo,
       packageId: request.packageId
     });
@@ -722,6 +763,7 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
           { id: 'campaigns', icon: Mail, label: 'Campaigns' },
           { id: 'billing', icon: DollarSign, label: 'Billing & Plans' },
           { id: 'requests', icon: CreditCard, label: 'Purchase Requests' },
+          {id: 'logs', icon: Shield, label: 'Admin Activity'},
           { id: 'settings', icon: Settings, label: 'Settings' }
         ].map((tab) => (
           <button
@@ -734,7 +776,7 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
             }`}
           >
             <tab.icon className="w-4 h-4" />
-            {tab.label}
+            {tab.label === 'Purchase Requests' ? tab.label + ' ' + purchaseRequests.filter(r => r.status === 'pending').length  : tab.label}
           </button>
         ))}
       </div>
@@ -1826,22 +1868,7 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
         </div>
       </div>
       
-      <div className="bg-white rounded-lg p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-blue-100 rounded-lg">
-            <DollarSign className="w-6 h-6 text-blue-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Total Value</p>
-            <p className="text-2xl font-bold text-gray-800">
-              Kes. {purchaseRequests
-                .filter(r => r.status === 'pending')
-                .reduce((sum, r) => sum + r.price, 0)
-                .toLocaleString()}
-            </p>
-          </div>
-        </div>
-      </div>
+     
     </div>
 
     {/* Requests Table */}
@@ -1866,7 +1893,6 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">User</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Package</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Coins</th>
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Price</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Date</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
@@ -1903,12 +1929,6 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
                         {request.amount.toLocaleString()}
                       </span>
                     </div>
-                  </td>
-                  
-                  <td className="py-3 px-4">
-                    <p className="text-sm font-semibold text-gray-800">
-                      Kes. {request.price.toLocaleString()}
-                    </p>
                   </td>
                   
                   <td className="py-3 px-4">
@@ -1969,6 +1989,269 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
   </div>
 )}
 
+{activeTab === 'logs' && (
+  <div className="space-y-6">
+    {/* Login Statistics */}
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="bg-white rounded-lg p-4 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-blue-100 rounded-lg">
+            <Activity className="w-6 h-6 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Total Logins</p>
+            <p className="text-2xl font-bold text-gray-800">{loginStats.totalLogins}</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-white rounded-lg p-4 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-green-100 rounded-lg">
+            <CheckCircle className="w-6 h-6 text-green-600" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Successful</p>
+            <p className="text-2xl font-bold text-green-600">{loginStats.successfulLogins}</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-white rounded-lg p-4 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-red-100 rounded-lg">
+            <AlertCircle className="w-6 h-6 text-red-600" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Failed</p>
+            <p className="text-2xl font-bold text-red-600">{loginStats.failedLogins}</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-white rounded-lg p-4 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-purple-100 rounded-lg">
+            <Shield className="w-6 h-6 text-purple-600" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Unique Admins</p>
+            <p className="text-2xl font-bold text-purple-600">{loginStats.uniqueAdmins}</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-white rounded-lg p-4 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-amber-100 rounded-lg">
+            <ClockIcon className="w-6 h-6 text-amber-600" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Last 24hrs</p>
+            <p className="text-2xl font-bold text-amber-600">{loginStats.recentActivity}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Success Rate Chart */}
+    <div className="bg-white rounded-lg p-6 shadow-md">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">Login Success Rate</h3>
+      <div className="flex items-center gap-4">
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-600">Successful Logins</span>
+            <span className="text-sm font-semibold text-green-600">
+              {loginStats.totalLogins > 0 
+                ? ((loginStats.successfulLogins / loginStats.totalLogins) * 100).toFixed(1)
+                : 0}%
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div 
+              className="bg-gradient-to-r from-green-500 to-emerald-600 h-3 rounded-full transition-all duration-500"
+              style={{ 
+                width: loginStats.totalLogins > 0 
+                  ? `${(loginStats.successfulLogins / loginStats.totalLogins) * 100}%` 
+                  : '0%' 
+              }}
+            ></div>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-3xl font-bold text-green-600">{loginStats.successfulLogins}</p>
+          <p className="text-xs text-gray-500">of {loginStats.totalLogins}</p>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-4 mt-4">
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-600">Failed Attempts</span>
+            <span className="text-sm font-semibold text-red-600">
+              {loginStats.totalLogins > 0 
+                ? ((loginStats.failedLogins / loginStats.totalLogins) * 100).toFixed(1)
+                : 0}%
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div 
+              className="bg-gradient-to-r from-red-500 to-rose-600 h-3 rounded-full transition-all duration-500"
+              style={{ 
+                width: loginStats.totalLogins > 0 
+                  ? `${(loginStats.failedLogins / loginStats.totalLogins) * 100}%` 
+                  : '0%' 
+              }}
+            ></div>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-3xl font-bold text-red-600">{loginStats.failedLogins}</p>
+          <p className="text-xs text-gray-500">attempts</p>
+        </div>
+      </div>
+    </div>
+
+    {/* Activity Log Table */}
+    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800">Admin Login Activity</h3>
+          <p className="text-sm text-gray-500 mt-1">Recent admin access attempts and sessions</p>
+        </div>
+        <button
+          onClick={loadAdminLogs}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
+      </div>
+      
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Timestamp</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Admin Email</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">IP Address</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Location</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Device</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {adminLogs.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-8 text-center text-gray-500">
+                  No admin activity logs found
+                </td>
+              </tr>
+            ) : (
+              adminLogs.map((log, index) => (
+                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="py-3 px-4">
+                    <div>
+                      <p className="text-sm text-gray-800">
+                        {new Date(log.timestamp).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </p>
+                    </div>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-blue-100 rounded">
+                        <Shield className="w-3 h-3 text-blue-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-800">
+                        {log.adminEmail}
+                      </span>
+                    </div>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1 w-fit ${
+                      log.status === 'success' ? 'bg-green-100 text-green-800' :
+                      log.status === 'failed' ? 'bg-red-100 text-red-800' :
+                      log.status === 'otp_sent' ? 'bg-blue-100 text-blue-800' :
+                      'bg-purple-100 text-purple-800'
+                    }`}>
+                      {log.status === 'success' && <CheckCircle className="w-3 h-3" />}
+                      {log.status === 'failed' && <X className="w-3 h-3" />}
+                      {log.status === 'otp_sent' && <Mail className="w-3 h-3" />}
+                      {log.status === 'otp_verified' && <Shield className="w-3 h-3" />}
+                      {log.status.replace('_', ' ').charAt(0).toUpperCase() + log.status.slice(1).replace('_', ' ')}
+                    </span>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <Monitor className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 font-mono">
+                        {log.ipAddress || 'Unknown'}
+                      </span>
+                    </div>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600">
+                        {log.location || 'Unknown'}
+                      </span>
+                    </div>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    <div className="max-w-xs">
+                      <p className="text-xs text-gray-500 truncate" title={log.userAgent}>
+                        {log.userAgent || 'Unknown'}
+                      </p>
+                    </div>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    {log.failureReason ? (
+                      <div className="flex items-center gap-1">
+                        <AlertCircle className="w-4 h-4 text-red-500" />
+                        <span className="text-xs text-red-600">
+                          {log.failureReason}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Security Alerts */}
+    {loginStats.failedLogins > 5 && (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-semibold text-red-800">Security Alert</h4>
+            <p className="text-sm text-red-700 mt-1">
+              Multiple failed login attempts detected ({loginStats.failedLogins} failures). 
+              Please review the activity log for suspicious activity.
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
+
 {/* Rejection Modal */}
 {showRequestDetailsModal && selectedRequest && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1992,8 +2275,6 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
         <p className="text-lg font-medium text-gray-800">{selectedRequest.userEmail}</p>
         <p className="text-sm text-gray-600 mt-2">Package:</p>
         <p className="text-sm font-medium text-gray-800">{selectedRequest.packageInfo}</p>
-        <p className="text-sm text-gray-600 mt-2">Amount:</p>
-        <p className="text-sm font-medium text-gray-800">Kes. {selectedRequest.price.toLocaleString()}</p>
       </div>
 
       <div className="mb-4">

@@ -10,7 +10,7 @@ export default function AdminProtected({ children }: { children: React.ReactNode
   const ADMIN_EMAILS = [
     'admin@example.com',
     'superadmin@example.com',
-    'keith@admin.org'
+    'keith@gmail.com'
     // Add your admin emails here
   ];
 

@@ -27,7 +27,8 @@ export default function AdminNavbar() {
     pathname === '/' ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/about') ||
-    pathname.startsWith('/services') || 
+    pathname.startsWith('/services') ||
+    pathname.startsWith('/settings') || 
     pathname.startsWith('/pricing') ||
     pathname.startsWith('/contact') ||
     pathname.startsWith('/admin/login') ||
@@ -80,7 +81,7 @@ export default function AdminNavbar() {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="user-menu-button flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="user-menu-button flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
                 >
                   <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
                     {user?.email?.charAt(0).toUpperCase() || 'A'}
@@ -104,10 +105,10 @@ export default function AdminNavbar() {
                       <p className="text-xs text-gray-500 mt-1">Admin Account</p>
                     </div>
                    
-                    <div className="border-t border-gray-200 py-2">
+                    <div className="border-t border-gray-200 py-2 bg-red-600 hover:bg-red-700">
                       <button
                         onClick={handleLogout}
-                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+                        className="w-full px-4 py-2 text-left text-sm text-white flex items-center gap-3 cursor-pointer"
                       >
                         <LogOut className="w-4 h-4" />
                         Sign Out

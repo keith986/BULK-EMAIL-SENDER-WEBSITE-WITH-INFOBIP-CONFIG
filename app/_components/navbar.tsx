@@ -3,6 +3,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUser } from '../_context/UserProvider';
 import { useState, useEffect, useRef } from 'react';
+import Protected from './Protected';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -72,7 +73,7 @@ export default function Navbar() {
 
 
   return (
-
+    <Protected>
    <div>
 <nav className="bg-gradient-to-r from-slate-900 to-blue-900 border-none shadow-lg dark:bg-gray-900 fixed w-full z-20 top-0 left-0 border-b dark:border-gray-600">
   <div className="max-w-screen-xl flex flex-wrap items-center justify-between mx-auto p-4">
@@ -140,7 +141,7 @@ export default function Navbar() {
   </div>
   </div>
 </nav>
-    </div>
-
+   </div>
+   </Protected>
   );
 }

@@ -9,6 +9,7 @@ export default function IntegratedPricingPage() {
   const coinPackages = [
     { 
       coins: 2000, 
+      period: '/ month',
       price: "Kes. 400", 
       popular: false,
       features: [
@@ -19,6 +20,7 @@ export default function IntegratedPricingPage() {
     },
     { 
       coins: 6000, 
+      period: '/ month',
       price: "Kes. 1,000", 
       popular: true, 
       bonus: 50,
@@ -31,6 +33,7 @@ export default function IntegratedPricingPage() {
     },
     { 
       coins: 10000, 
+      period: '/ month',
       price: "Kes. 1,700", 
       popular: false, 
       bonus: 150,
@@ -57,7 +60,7 @@ export default function IntegratedPricingPage() {
 
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden">
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden font-sans">
       <PublicHeader />
       {/* Background pattern */}
       <div className="absolute inset-0 opacity-30">
@@ -127,7 +130,8 @@ export default function IntegratedPricingPage() {
                   </div>
 
                   <p className="text-5xl font-bold text-gray-800 mb-2">
-                    {typeof pkg.coins === 'number' ? pkg.coins.toLocaleString() : pkg.coins}
+                    {pkg.isCustom ? pkg.coins : `${pkg.coins.toLocaleString()}`}
+                    <span className="text-xl font-medium text-gray-600">{pkg.period || ''}</span>
                   </p>
                   <p className="text-sm text-gray-600 mb-4 font-medium uppercase tracking-wide">
                     {pkg.isCustom ? 'Package' : 'coins'}
@@ -224,8 +228,7 @@ export default function IntegratedPricingPage() {
           </div>
       </div>
 
-      <PublicFooter />
-    
+      <PublicFooter /> 
     </main>
   )
 }
