@@ -4,7 +4,7 @@ import PublicFooter from '../_components/PublicFooter';
 
 export default function ServicesPage() {
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden">
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden font-sans">
       {/* Email template inspired background pattern */}
       <div className="absolute inset-0 opacity-30">
         <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-blue-100 to-transparent"></div>
@@ -32,7 +32,7 @@ export default function ServicesPage() {
           </header>
 
           {/* Core Services - 3 Column Grid */}
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 mb-12">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-2 mb-12">
             <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border-2 border-blue-100 shadow-lg hover:shadow-2xl transition-all hover:scale-105">
               <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center text-white mb-4 shadow-lg">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -42,18 +42,6 @@ export default function ServicesPage() {
               <h3 className="font-bold text-lg text-slate-900 mb-2">Batch Sending</h3>
               <p className="text-sm text-slate-600 leading-relaxed">
                 Split large lists into batches to avoid rate limits and distribute load efficiently across your campaigns.
-              </p>
-            </div>
-
-            <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border-2 border-green-100 shadow-lg hover:shadow-2xl transition-all hover:scale-105">
-              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center text-white mb-4 shadow-lg">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </div>
-              <h3 className="font-bold text-lg text-slate-900 mb-2">Retry & Backoff</h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                Automatic retrying for transient delivery failures with intelligent exponential backoff strategies.
               </p>
             </div>
 

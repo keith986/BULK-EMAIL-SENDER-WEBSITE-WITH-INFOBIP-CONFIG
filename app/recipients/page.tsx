@@ -406,7 +406,7 @@ export default function Recipients() {
   return (
     <Protected>
       <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">  
-        <div className="relative overflow-x-auto mt-10 sm:ml-80 sm:mr-70">
+        <div className="relative overflow-x-auto mt-20 sm:ml-80 sm:mr-70">
           
           {/* Group Filter Bar */}
           <div className="bg-white rounded-lg p-4 mb-4 shadow-md">

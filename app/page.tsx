@@ -84,7 +84,7 @@ export default function LandingPage() {
    }, [user?.uid]);
 
    return (
-      <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden">
+      <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden font-sans">
          {/* Email template inspired background pattern */}
          <div className="absolute inset-0 opacity-30">
             <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-blue-100 to-transparent"></div>
@@ -114,10 +114,10 @@ export default function LandingPage() {
                         <div className="font-semibold mt-1 text-slate-900">Batch sending</div>
                         <div className="text-sm text-slate-600 mt-2">Split large lists into manageable batches to avoid rate limits.</div>
                      </div>
-                     <div className="bg-white/80 backdrop-blur-sm border border-purple-100 p-4 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-105">
-                        <div className="text-xs uppercase text-purple-600 font-bold">Reliable</div>
-                        <div className="font-semibold mt-1 text-slate-900">Automatic retries</div>
-                        <div className="text-sm text-slate-600 mt-2">Handles temporary errors and retries intelligently.</div>
+                     <div className="bg-white/80 backdrop-blur-sm border border-green-100 p-4 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-105">
+                        <div className="text-xs uppercase text-green-600 font-bold">Reliability</div>
+                        <div className="font-semibold mt-1 text-slate-900">Faster delivery</div>
+                        <div className="text-sm text-slate-600 mt-2">Optimize sending speed while maintaining high deliverability rates.</div>
                      </div>
                      <div className="bg-white/80 backdrop-blur-sm border border-pink-100 p-4 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-105 hidden sm:block">
                         <div className="text-xs uppercase text-pink-600 font-bold">Insight</div>
@@ -238,8 +238,8 @@ export default function LandingPage() {
                      <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center text-white mb-4 shadow-lg">
                         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                      </div>
-                     <div className="font-bold text-lg text-slate-900">Auto Retry Logic</div>
-                     <div className="text-sm mt-2 text-slate-600 leading-relaxed">Retries, error handling and monitoring to keep campaigns moving.</div>
+                     <div className="font-bold text-lg text-slate-900">Monitoring</div>
+                     <div className="text-sm mt-2 text-slate-600 leading-relaxed">To help keep campaigns moving.</div>
                   </div>
                   <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border-2 border-blue-100 shadow-lg hover:shadow-2xl transition-all hover:scale-105 hover:border-blue-200">
                      <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center text-white mb-4 shadow-lg">

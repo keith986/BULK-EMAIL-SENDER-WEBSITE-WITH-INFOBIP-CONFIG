@@ -4,7 +4,7 @@ import PublicFooter from '../_components/PublicFooter';
 
 export default function AboutPage() {
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden">
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 text-slate-900 relative overflow-hidden font-sans">
       {/* Email template inspired background pattern */}
       <div className="absolute inset-0 opacity-30">
         <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-blue-100 to-transparent"></div>
@@ -41,7 +41,7 @@ export default function AboutPage() {
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mb-3">Our Mission</h2>
               <p className="text-slate-600 leading-relaxed">
-                Bulky exists to make sending email campaigns easy and reliable — with batching, retries and insightful reporting so teams can focus on content and results.
+                Bulky exists to make sending email campaigns easy and reliable — with batching and insightful reporting so teams can focus on content and results.
               </p>
             </div>
 

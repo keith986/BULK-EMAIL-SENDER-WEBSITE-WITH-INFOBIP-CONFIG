@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -26,6 +26,21 @@ export default function AuthPage() {
   const [isNewUser, setIsNewUser] = useState<boolean>(false);
   const { user, loading: userLoading } = useUser();
 
+  // Rate limiting states
+  const [otpResendTimer, setOtpResendTimer] = useState<number>(0);
+  const [otpAttempts, setOtpAttempts] = useState<number>(0);
+  const [isRateLimited, setIsRateLimited] = useState<boolean>(false);
+  const [rateLimitEndTime, setRateLimitEndTime] = useState<number>(0);
+  
+  // Refs for location data caching
+  const locationDataCache = useRef<{
+    data: { ipAddress: string; location: string; userAgent: string } | null;
+    timestamp: number;
+  }>({ data: null, timestamp: 0 });
+  
+  const lastOtpRequestTime = useRef<number>(0);
+  const requestTimestamps = useRef<number[]>([]);
+
   // Redirect if already logged in
   useEffect(() => {
     const validateUser = async () => {
@@ -40,6 +55,101 @@ export default function AuthPage() {
     validateUser();
   }, [user, userLoading, router]);
 
+  // OTP resend timer countdown
+  useEffect(() => {
+    if (otpResendTimer > 0) {
+      const interval = setInterval(() => {
+        setOtpResendTimer((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [otpResendTimer]);
+
+  // Rate limit timer countdown
+  useEffect(() => {
+    if (isRateLimited) {
+      const interval = setInterval(() => {
+        const now = Date.now();
+        if (now >= rateLimitEndTime) {
+          setIsRateLimited(false);
+          setOtpAttempts(0);
+          requestTimestamps.current = [];
+          clearInterval(interval);
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isRateLimited, rateLimitEndTime]);
+
+  // Get cached or fresh location data
+  const getCachedLocationData = async () => {
+    const now = Date.now();
+    const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+
+    // Return cached data if still valid
+    if (
+      locationDataCache.current.data && 
+      now - locationDataCache.current.timestamp < CACHE_DURATION
+    ) {
+      return locationDataCache.current.data;
+    }
+
+    // Fetch fresh data
+    try {
+      const data = await getUserLocationData();
+      locationDataCache.current = {
+        data,
+        timestamp: now
+      };
+      return data;
+    } catch (error) {
+      console.error('Error fetching location data:', error);
+      // Return cached data even if expired, or fallback
+      return locationDataCache.current.data || {
+        ipAddress: 'Unknown',
+        location: 'Unknown',
+        userAgent: navigator.userAgent || 'Unknown'
+      };
+    }
+  };
+
+  // Check rate limiting
+  const checkRateLimit = (): boolean => {
+    const now = Date.now();
+    const WINDOW_MS = 60 * 1000; // 1 minute window
+    const MAX_REQUESTS = 3; // Max 3 OTP requests per minute
+
+    // Clean old timestamps
+    requestTimestamps.current = requestTimestamps.current.filter(
+      timestamp => now - timestamp < WINDOW_MS
+    );
+
+    // Check if rate limited
+    if (requestTimestamps.current.length >= MAX_REQUESTS) {
+      const lockDuration = 2 * 60 * 1000; // 2 minutes lockout
+      setIsRateLimited(true);
+      setRateLimitEndTime(now + lockDuration);
+      toast.error('Too many attempts. Please wait 2 minutes before trying again.');
+      return false;
+    }
+
+    return true;
+  };
+
+  // Calculate dynamic wait time based on attempts
+  const getWaitTime = (): number => {
+    // Progressive delays: 30s, 60s, 90s, 120s
+    const baseDelay = 30;
+    const increment = 30;
+    return Math.min(baseDelay + (otpAttempts * increment), 120);
+  };
+
   // Send OTP to email
   const handleSendOTP = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -49,14 +159,40 @@ export default function AuthPage() {
       return;
     }
 
+    // Check if user is rate limited
+    if (isRateLimited) {
+      const remainingTime = Math.ceil((rateLimitEndTime - Date.now()) / 1000);
+      toast.error(`Rate limited. Please wait ${remainingTime} seconds.`);
+      return;
+    }
+
+    // Check resend timer
+    if (otpResendTimer > 0) {
+      toast.info(`Please wait ${otpResendTimer} seconds before requesting a new OTP.`);
+      return;
+    }
+
+    // Check rate limit
+    if (!checkRateLimit()) {
+      return;
+    }
+
+    // Minimum time between requests (prevent spam clicking)
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastOtpRequestTime.current;
+    if (timeSinceLastRequest < 5000) { // 5 second minimum
+      toast.info('Please wait a moment before requesting another OTP.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // Get location data
-      const locationData = await getUserLocationData();
+      // Get cached location data (reduces API calls)
+      const locationData = await getCachedLocationData();
       
-      // Log OTP sent
-      await logClientLogin({
+      // Log OTP sent (batched - only if successful)
+      const logPromise = logClientLogin({
         userEmail: isData.email,
         status: 'otp_sent',
         ipAddress: locationData.ipAddress,
@@ -79,7 +215,19 @@ export default function AuthPage() {
         });
 
         if (emailResponse.ok) {
-          toast.success('OTP sent to your email!');
+          // Update tracking
+          lastOtpRequestTime.current = now;
+          requestTimestamps.current.push(now);
+          setOtpAttempts(prev => prev + 1);
+          
+          // Set progressive timer
+          const waitTime = getWaitTime();
+          setOtpResendTimer(waitTime);
+          
+          // Log success (don't await to reduce blocking)
+          logPromise.catch(err => console.error('Failed to log OTP sent:', err));
+          
+          toast.success(`OTP sent! You can request a new one in ${waitTime} seconds.`);
           setStep('otp');
         } else {
           toast.error('Failed to send OTP email');
@@ -104,11 +252,16 @@ export default function AuthPage() {
       return;
     }
 
+    if (isData.otp.length !== 6) {
+      toast.info("OTP must be 6 digits!");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // Get location data
-      const locationData = await getUserLocationData();
+      // Get cached location data
+      const locationData = await getCachedLocationData();
 
       // Verify OTP
       const result = await verifyOTP({ 
@@ -119,14 +272,14 @@ export default function AuthPage() {
       if (result.code === 777) {
         setIsNewUser(result.isNewUser || false);
 
-        // Log OTP verified
-        await logClientLogin({
+        // Log OTP verified (async, don't block)
+        logClientLogin({
           userEmail: isData.email,
           status: 'otp_verified',
           ipAddress: locationData.ipAddress,
           userAgent: locationData.userAgent,
           location: locationData.location
-        });
+        }).catch(err => console.error('Failed to log OTP verified:', err));
 
         if (result.isNewUser) {
           // New user - ask for display name
@@ -137,42 +290,41 @@ export default function AuthPage() {
           const signInResult = await signInOTPUser({ email: isData.email });
           
           if (signInResult.code === 777) {
-            // Log successful login
-            await logClientLogin({
+            // Log successful login (async)
+            logClientLogin({
               userEmail: isData.email,
               status: 'success',
               ipAddress: locationData.ipAddress,
               userAgent: locationData.userAgent,
               location: locationData.location
-            });
+            }).catch(err => console.error('Failed to log success:', err));
 
             toast.success('Login successful!');
             router.push('/dashboard');
           } else {
-            // Log failed login
-            await logClientLogin({
+            // Log failed login (async)
+            logClientLogin({
               userEmail: isData.email,
               status: 'failed',
               failureReason: signInResult.message,
               ipAddress: locationData.ipAddress,
               userAgent: locationData.userAgent,
               location: locationData.location
-            });
+            }).catch(err => console.error('Failed to log failure:', err));
 
             toast.error(signInResult.message || 'Failed to sign in');
           }
         }
       } else {
-        // Log failed OTP verification
-        const locationData = await getUserLocationData();
-        await logClientLogin({
+        // Log failed OTP verification (async)
+        logClientLogin({
           userEmail: isData.email,
           status: 'failed',
           failureReason: 'Invalid OTP',
           ipAddress: locationData.ipAddress,
           userAgent: locationData.userAgent,
           location: locationData.location
-        });
+        }).catch(err => console.error('Failed to log invalid OTP:', err));
 
         toast.error(result.message || 'Invalid OTP');
       }
@@ -196,8 +348,8 @@ export default function AuthPage() {
     setIsLoading(true);
 
     try {
-      // Get location data
-      const locationData = await getUserLocationData();
+      // Get cached location data
+      const locationData = await getCachedLocationData();
 
       const result = await createUserWithOTP({ 
         email: isData.email, 
@@ -205,27 +357,27 @@ export default function AuthPage() {
       });
 
       if (result.code === 777) {
-        // Log successful signup
-        await logClientLogin({
+        // Log successful signup (async)
+        logClientLogin({
           userEmail: isData.email,
           status: 'success',
           ipAddress: locationData.ipAddress,
           userAgent: locationData.userAgent,
           location: locationData.location
-        });
+        }).catch(err => console.error('Failed to log signup:', err));
 
         toast.success('Account created successfully!');
         router.push('/dashboard');
       } else {
-        // Log failed signup
-        await logClientLogin({
+        // Log failed signup (async)
+        logClientLogin({
           userEmail: isData.email,
           status: 'failed',
           failureReason: result.message,
           ipAddress: locationData.ipAddress,
           userAgent: locationData.userAgent,
           location: locationData.location
-        });
+        }).catch(err => console.error('Failed to log failed signup:', err));
 
         toast.error(result.message || 'Failed to create account');
       }
@@ -241,34 +393,34 @@ export default function AuthPage() {
     setIsLoading(true);
     
     try {
-      // Get location data
-      const locationData = await getUserLocationData();
+      // Get cached location data
+      const locationData = await getCachedLocationData();
 
       const result = await signUpWithGoogleAccount();
       
       if (result?.code === 777) {
-        // Log successful Google login
-        await logClientLogin({
+        // Log successful Google login (async)
+        logClientLogin({
           userEmail: result.email || 'unknown',
           status: 'success',
           ipAddress: locationData.ipAddress,
           userAgent: locationData.userAgent,
           location: locationData.location
-        });
+        }).catch(err => console.error('Failed to log Google login:', err));
 
         toast.success('Signed in with Google successfully!');
         setIsData({ username: '', email: '', otp: '' });
         if (result.uid) router.push('/dashboard');
       } else {
-        // Log failed Google login
-        await logClientLogin({
+        // Log failed Google login (async)
+        logClientLogin({
           userEmail: isData.email || 'unknown',
           status: 'failed',
           failureReason: result?.message || 'Google auth failed',
           ipAddress: locationData.ipAddress,
           userAgent: locationData.userAgent,
           location: locationData.location
-        });
+        }).catch(err => console.error('Failed to log Google failure:', err));
 
         toast.error(`${result?.message || 'Google auth failed.'}${result?.errorCode ? ` (${result.errorCode})` : ''}`);
       }
@@ -280,10 +432,16 @@ export default function AuthPage() {
     }
   };
 
-  
   const handleBackToEmail = () => {
     setStep('email');
     setIsData({ ...isData, otp: '' });
+  };
+
+  // Format timer display
+  const formatTimer = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${secs}s`;
   };
 
   return (
@@ -326,6 +484,22 @@ export default function AuthPage() {
               </div>
             </div>
           </div>
+
+          {/* Rate Limit Info */}
+          {(otpResendTimer > 0 || isRateLimited) && (
+            <div className="mt-6 p-4 bg-white/10 rounded-lg border border-white/20">
+              <p className="text-xs text-slate-200 mb-2">Security Notice:</p>
+              {isRateLimited ? (
+                <p className="text-sm text-white font-medium">
+                   Too many attempts. Locked for {formatTimer(Math.ceil((rateLimitEndTime - Date.now()) / 1000))}
+                </p>
+              ) : (
+                <p className="text-sm text-white">
+                   Next OTP request in: {formatTimer(otpResendTimer)}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right Panel - Auth Form */}
@@ -392,7 +566,7 @@ export default function AuthPage() {
                 </div>
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isLoading || otpResendTimer > 0 || isRateLimited}
                   className="w-full px-4 py-3 bg-slate-900 text-white rounded-lg font-medium hover:bg-gradient-to-br hover:from-red-900 hover:to-slate-700 transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   {isLoading ? (
@@ -403,6 +577,10 @@ export default function AuthPage() {
                       </svg>
                       Sending OTP...
                     </span>
+                  ) : otpResendTimer > 0 ? (
+                    `Wait ${formatTimer(otpResendTimer)} to resend`
+                  ) : isRateLimited ? (
+                    'Rate Limited - Please Wait'
                   ) : (
                     'Continue with Email'
                   )}
@@ -427,6 +605,7 @@ export default function AuthPage() {
                     placeholder="000000"
                     maxLength={6}
                     required
+                    autoFocus
                     className="w-full px-4 py-3 border border-slate-200 rounded-lg text-center text-2xl tracking-[0.5em] font-bold focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
                   />
                   <p className="text-xs text-slate-500 mt-2 text-center">
@@ -436,7 +615,7 @@ export default function AuthPage() {
                 
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isLoading || isData.otp.length !== 6}
                   className="w-full px-4 py-3 bg-slate-900 text-white rounded-lg font-medium hover:bg-gradient-to-br hover:from-red-900 hover:to-slate-700 transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   {isLoading ? (
@@ -456,15 +635,20 @@ export default function AuthPage() {
                   <button
                     type="button"
                     onClick={handleSendOTP}
-                    disabled={isLoading}
-                    className="w-full text-sm text-slate-600 hover:text-slate-900 font-medium transition-colors disabled:opacity-50"
+                    disabled={isLoading || otpResendTimer > 0 || isRateLimited}
+                    className="w-full text-sm text-slate-600 hover:text-slate-900 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Did not receive code? Resend
+                    {otpResendTimer > 0 
+                      ? `Resend code in ${formatTimer(otpResendTimer)}` 
+                      : isRateLimited 
+                      ? 'Too many attempts - please wait'
+                      : 'Did not receive code? Resend'}
                   </button>
                   <button
                     type="button"
                     onClick={handleBackToEmail}
-                    className="w-full text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                    disabled={isLoading}
+                    className="w-full text-sm text-slate-500 hover:text-slate-700 transition-colors disabled:opacity-50"
                   >
                     ← Change email address
                   </button>
@@ -484,6 +668,7 @@ export default function AuthPage() {
                     onChange={(e) => setIsData({ ...isData, username: e.target.value })}
                     placeholder="John Doe"
                     required
+                    autoFocus
                     className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
                   />
                 </div>

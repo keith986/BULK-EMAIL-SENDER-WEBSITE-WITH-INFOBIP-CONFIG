@@ -622,7 +622,7 @@ export default function Compose () {
   return (
     <Protected>
       <div className="bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">
-        <div className="p-4 sm:ml-64 mt-14 sm:mt-20">
+        <div className="p-4 sm:ml-64 mt-20 ">
           <ToastContainer position="top-right" autoClose={7000} hideProgressBar={false} closeOnClick draggable pauseOnHover theme={"light"} />
           
           {/* Header Section */}
