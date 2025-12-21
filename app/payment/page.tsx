@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useUser } from '../_context/UserProvider';
 import { toast, ToastContainer } from 'react-toastify';
 import { Plus } from 'lucide-react';
-import { createPurchaseRequest, fetchUserPurchaseRequests } from '../_utils/firebase-operations';
+import PaymentModal from '../_components/PaymentModal';
+import { fetchUserPayments } from '../_utils/firebase-operations';
 
 interface CoinPackage {
   coins: number | string;
@@ -24,21 +25,6 @@ interface CoinTransaction {
   status: 'completed' | 'pending' | 'failed';
 }
 
-interface PurchaseRequest {
-  id: string;
-  status: 'pending' | 'approved' | 'rejected';
-  packageInfo: string;
-  amount: number;
-  price: number;
-  createdAt: string | number | Date;  // Can be various date formats
-  updatedAt?: string | number | Date;
-  rejectionReason?: string;
-  userId: string;
-  userEmail: string;
-  userName: string;
-  packageId: string;
-  // Add any other properties that might be in your Firebase data
-}
 
 export default function DashboardClient() {
   const [coins, setCoins] = useState(0);
@@ -47,7 +33,10 @@ export default function DashboardClient() {
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<CoinTransaction[]>([]);
   const { user } = useUser();
-  const [pendingRequests, setPendingRequests] = useState<PurchaseRequest[]>([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+
+  // Add state for payment modal
+const [selectedPackageData, setSelectedPackageData] = useState<any>(null);
 
   // Coin packages with CORRECT Kenyan Shilling prices
   const coinPackages: CoinPackage[] = [
@@ -99,13 +88,13 @@ export default function DashboardClient() {
     },
   ];
 
-  useEffect(() => {
-    const uid = user?.uid;
-    if (!uid) return;
-    fetchUserCoins(uid);
-    fetchCoinTransactions(uid);
-    fetchPendingRequests(uid);
-  }, [user?.uid]);
+useEffect(() => {
+  const uid = user?.uid;
+  if (!uid) return;
+  fetchUserCoins(uid);
+  fetchCoinTransactions(uid);
+  loadUserPayments(); 
+}, [user?.uid]);
 
   const fetchUserCoins = async (userId: string) => {
     try {
@@ -170,6 +159,7 @@ export default function DashboardClient() {
   };
 */
 
+/*
 const handlePurchaseCoins = async (packageIndex: number) => {
   const uid = user?.uid;
   const email = user?.email;
@@ -211,16 +201,47 @@ const handlePurchaseCoins = async (packageIndex: number) => {
     toast.error('Error submitting request: ' + (err instanceof Error ? err.message : String(err)));
   }
 };
+*/
 
-const fetchPendingRequests = async (userId: string) => {
+const loadUserPayments = async () => {
   try {
-    const result = await fetchUserPurchaseRequests({ userId });
+    if (!user?.uid) return;
+    
+    const result = await fetchUserPayments({ userId: user.uid });
+    console.log('Payment fetch result:', result);
+    
     if (result.code === 777 && result.data) {
-      setPendingRequests((result.data.requests || []) as PurchaseRequest[]);
+      // Filter out cancelled and failed payments - only show pending and completed
+      const filteredPayments = result.data.payments.filter(
+        (p: any) => p.paymentStatus !== 'cancelled' && p.paymentStatus !== 'failed'
+      );
+      
+      console.log('Filtered payments:', filteredPayments);
+      setPendingRequests(filteredPayments);
     }
-  } catch (err) {
-    console.error('Error fetching pending requests:', err);
+  } catch (error) {
+    console.error('Error loading payments:', error);
+    toast.error('Error loading payments');
   }
+};
+
+
+const handleSelectPackage = (packageIndex: number) => {
+  const pkg = coinPackages[packageIndex];
+  
+  if (pkg.isCustom) {
+    toast.info('Please contact support for custom packages');
+    return;
+  }
+
+  setSelectedPackageData({
+    coins: pkg.coins,
+    price: pkg.price,
+    packageId: `${pkg.coins}c`,
+    packageInfo: `${pkg.coins} coins${pkg.bonus ? ` + ${pkg.bonus} bonus` : ''}`,
+    bonus: pkg.bonus
+  });
+  setShowPaymentModal(true);
 };
 
   return (
@@ -332,102 +353,137 @@ const fetchPendingRequests = async (userId: string) => {
     </h3>
     
     <div className="space-y-4">
-      {pendingRequests.map((request) => (
-        <div 
-          key={request.id} 
-          className={`p-6 rounded-xl border-2 ${
-            request.status === 'pending' ? 'border-yellow-300 bg-yellow-50' :
-            request.status === 'approved' ? 'border-green-300 bg-green-50' :
-            'border-red-300 bg-red-50'
-          }`}
-        >
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <p className="text-lg font-bold text-gray-800">{request.packageInfo}</p>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                  request.status === 'pending' ? 'bg-yellow-200 text-yellow-800' :
-                  request.status === 'approved' ? 'bg-green-200 text-green-800' :
-                  'bg-red-200 text-red-800'
-                }`}>
-                  {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                </span>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-3">
-                <div>
-                  <p className="text-xs text-gray-600">Coins</p>
-                  <p className="text-sm font-semibold text-gray-800 flex items-center gap-1">
-                    <svg className="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
-                    </svg>
-                    {request.amount.toLocaleString()}
-                  </p>
+      {pendingRequests.length > 0 && (
+  <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200 mt-8">
+    
+    
+    <div className="space-y-4">
+      {pendingRequests.map((request: any) => {  
+        const status = request.paymentStatus || 'pending';
+     
+        return (
+          <div 
+            key={request.id} 
+            className={`p-6 rounded-xl border-2 ${
+              status === 'pending' ? 'border-yellow-300 bg-yellow-50' :
+              status === 'completed' ? 'border-green-300 bg-green-50' :
+              status === 'rejected' ? 'border-red-300 bg-red-50' :
+              'border-gray-300 bg-gray-50'
+            }`}
+          >
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-lg font-bold text-gray-800">{request.packageInfo}</p>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    status === 'pending' ? 'bg-yellow-200 text-yellow-800' :
+                    status === 'completed' ? 'bg-green-200 text-green-800' :
+                    status === 'rejected' ? 'bg-red-200 text-red-800' :
+                    'bg-gray-200 text-gray-800'
+                  }`}>
+                    {status === 'pending' ? '⏳ Awaiting Approval' :
+                     status === 'completed' ? '✓ Approved' :
+                     status === 'rejected' ? '✗ Rejected' :
+                     status.charAt(0).toUpperCase() + status.slice(1)}
+                  </span>
+                  
+                  {/* Payment Method Badge */}
+                  {request.paymentMethod === 'mpesa' && (
+                    <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">
+                      M-Pesa
+                    </span>
+                  )}
                 </div>
                 
-                <div>
-                  <p className="text-xs text-gray-600">Price</p>
-                  <p className="text-sm font-semibold text-gray-800">
-                    Kes. {request.price.toLocaleString()}
-                  </p>
-                </div>
-                
-                <div>
-                  <p className="text-xs text-gray-600">Submitted</p>
-                  <p className="text-sm font-semibold text-gray-800">
-                    {new Date(request.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-              
-              {request.status === 'pending' && (
-                <div className="mt-3 flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
-                  </svg>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
                   <div>
-                    <p className="text-sm font-semibold text-blue-800">Awaiting Admin Approval</p>
-                    <p className="text-xs text-blue-600 mt-1">
-                      Your purchase request is being reviewed. You will receive your coins once approved by an administrator.
+                    <p className="text-xs text-gray-600">Amount</p>
+                    <p className="text-sm font-semibold text-gray-800">
+                      Kes. {(request.amount || 0).toLocaleString()}
                     </p>
                   </div>
-                </div>
-              )}
-              
-              {request.status === 'approved' && (
-                <div className="mt-3 flex items-start gap-2 p-3 bg-green-100 rounded-lg border border-green-300">
-                  <svg className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
-                  </svg>
+                  
                   <div>
-                    <p className="text-sm font-semibold text-green-800">Request Approved!</p>
-                    <p className="text-xs text-green-600 mt-1">
-                      Your coins have been added to your balance.
+                    <p className="text-xs text-gray-600">Coins</p>
+                    <p className="text-sm font-semibold text-gray-800 flex items-center gap-1">
+                      <svg className="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
+                      </svg>
+                      {(request.coins || 0).toLocaleString()}
                     </p>
                   </div>
-                </div>
-              )}
-              
-              {request.status === 'rejected' && (
-                <div className="mt-3 flex items-start gap-2 p-3 bg-red-100 rounded-lg border border-red-300">
-                  <svg className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/>
-                  </svg>
-                  <div>
-                    <p className="text-sm font-semibold text-red-800">Request Rejected</p>
-                    {request.rejectionReason && (
-                      <p className="text-xs text-red-600 mt-1">
-                        Reason: {request.rejectionReason}
+                  
+                  {request.transactionRef && (
+                    <div>
+                      <p className="text-xs text-gray-600">M-Pesa Ref</p>
+                      <p className="text-xs font-mono text-gray-800">
+                        {request.transactionRef}
                       </p>
-                    )}
-                  </div>
+                      {request.manuallyVerified && (
+                        <span className="text-xs text-blue-600">Manual</span>
+                      )}
+                    </div>
+                  )}
+                  
                 </div>
-              )}
+                
+                {/* Status Messages */}
+                {status === 'pending' && (
+                  <div className="mt-3 flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
+                    </svg>
+                    <div>
+                      <p className="text-sm font-semibold text-blue-800">Payment Received - Awaiting Admin Approval</p>
+                      <p className="text-xs text-blue-600 mt-1">
+                        Your M-Pesa payment was successful. Coins will be credited once an administrator approves your payment.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {status === 'completed' && (
+                  <div className="mt-3 flex items-start gap-2 p-3 bg-green-100 rounded-lg border border-green-300">
+                    <svg className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                    </svg>
+                    <div>
+                      <p className="text-sm font-semibold text-green-800">Payment Approved!</p>
+                      <p className="text-xs text-green-600 mt-1">
+                        Your coins have been added to your balance.
+                        {request.approvedAt && ` (Approved ${new Date(request.approvedAt).toLocaleDateString()})`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {status === 'rejected' && (
+                  <div className="mt-3 flex items-start gap-2 p-3 bg-red-100 rounded-lg border border-red-300">
+                    <svg className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/>
+                    </svg>
+                    <div>
+                      <p className="text-sm font-semibold text-red-800">Payment Rejected</p>
+                      {request.rejectionReason && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Reason: {request.rejectionReason}
+                        </p>
+                      )}
+                      <p className="text-xs text-red-500 mt-1">
+                        Please contact support if you believe this is an error.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
+    </div>
+  </div>
+)}
     </div>
   </div>
           )}
@@ -515,7 +571,7 @@ const fetchPendingRequests = async (userId: string) => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handlePurchaseCoins(index);
+                            handleSelectPackage(index);
                           }}
                           className={`w-full py-3 rounded-xl font-bold transition-all transform hover:scale-105 shadow-lg ${
                             selectedPackage === index
@@ -618,6 +674,26 @@ const fetchPendingRequests = async (userId: string) => {
             </div>
           </div>
         )}
+
+  
+{showPaymentModal && selectedPackageData && (
+<PaymentModal
+  isOpen={showPaymentModal}
+  onClose={() => {
+    setShowPaymentModal(false);
+    setSelectedPackageData(null);
+  }}
+  packageData={selectedPackageData}
+  userEmail={user?.email || ''}
+  userId={user?.uid || ''}
+  userName={user?.displayName || 'Unknown User'}
+  onPaymentSuccess={() => {
+    fetchUserCoins(user?.uid || '');
+    fetchCoinTransactions(user?.uid || '');
+    loadUserPayments(); 
+  }}
+/>
+)}
 
         <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} closeOnClick draggable pauseOnHover theme="light" />
       </div>

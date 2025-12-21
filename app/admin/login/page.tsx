@@ -9,9 +9,7 @@ import { useUser } from '../../_context/UserProvider';
 import { createOTP, verifyOTP, logAdminLogin, getUserLocationData } from '../../_utils/firebase-operations';
 
 const ADMIN_EMAILS = [
-  'admin@example.com',
-  'keith@gmail.com',
-  'superadmin@example.com'
+  'keithkelly986@gmail.com'
   // Add more admin emails as needed
 ];
 

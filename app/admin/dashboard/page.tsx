@@ -1,10 +1,10 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity, MapPin, Monitor, CheckCircle, AlertCircle, ClockIcon, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
+import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity, MapPin, Monitor, CheckCircle, AlertCircle,Smartphone, ClockIcon, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
 import { collection, getDocs, query, where, updateDoc, doc, deleteDoc, setDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
 import AdminProtected  from '../../_components/AdminProtected'
-import { deletePurchaseRequest } from '../../_utils/firebase-operations';
+import { fetchAllPayments } from '../../_utils/firebase-operations';
 
 interface User {
   id: string;
@@ -132,6 +132,23 @@ const pricingPlans: PricingPlan[] = [
   }
 ];
 
+interface Payment {
+  id: string,
+  userId: string,
+  userEmail: string,
+  userName: string,
+  amount: number,
+  coins: number
+  packageInfo: string,
+  packageId: string,
+  paymentMethod: string,
+  paymentStatus: string,
+  transactionRef: string,
+  mpesaPhone: string,
+  mpesaCheckoutRequestId: string,
+  rejectionReason: string,
+}
+
 // Toast Notification Component
 const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) => {
   useEffect(() => {
@@ -153,7 +170,7 @@ const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 
 };
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'campaigns' | 'billing' | 'requests' | 'logs' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'campaigns' | 'billing' | 'payments' | 'logs' | 'settings'>('overview');
   const [users, setUsers] = useState<User[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [stats, setStats] = useState<Stats>({
@@ -182,7 +199,6 @@ export default function AdminDashboard() {
     usersTrend: 'up', 
     campaignsTrend: 'up' 
   });
-  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
   const [showRequestDetailsModal, setShowRequestDetailsModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -194,31 +210,39 @@ export default function AdminDashboard() {
   status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
   failureReason?: string;
   timestamp: Date;
-}>>([]);
-
-const [loginStats, setLoginStats] = useState<{
+  }>>([]);
+  const [loginStats, setLoginStats] = useState<{
   totalLogins: number;
   successfulLogins: number;
   failedLogins: number;
   uniqueAdmins: number;
   recentActivity: number;
-}>({
+  }>({
   totalLogins: 0,
   successfulLogins: 0,
   failedLogins: 0,
   uniqueAdmins: 0,
   recentActivity: 0
-});
+  });
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [showPaymentReviewModal, setShowPaymentReviewModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{
+  type: 'payment' | 'user' | 'apikey';
+  id: string;
+  name?: string;
+  email?: string;
+  } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
     setToast({ message, type });
   };
 
-// Update loadDataFromFirebase to also load purchase requests
 useEffect(() => {
   loadDataFromFirebase();
-  loadPurchaseRequests();
   loadAdminLogs();
+  loadPayments();
 }, []);
 
 const loadAdminLogs = async () => {
@@ -415,76 +439,14 @@ const loadAdminLogs = async () => {
     }
   };
 
-  const handleRevokeApiKey = async (userId: string) => {
-    if (!confirm('Are you sure you want to revoke this API key?')) return;
-
-    try {
-      const apiKeyQuery = query(collection(db, 'apikeys'), where('userId', '==', userId));
-      const apiKeySnapshot = await getDocs(apiKeyQuery);
-
-      if (!apiKeySnapshot.empty) {
-        const docRef = apiKeySnapshot.docs[0].ref;
-        await updateDoc(docRef, {
-          apiKey: '',
-          updatedAt: serverTimestamp()
-        });
-      }
-
-      setUsers(users.map(u => 
-        u.id === userId ? { ...u, apiKey: undefined, hasApiKey: false } : u
-      ));
-      showToast('API Key revoked successfully', 'success');
-    } catch (error) {
-      console.error('Error revoking API key:', error);
-      showToast('Error revoking API key', 'error');
-    }
+  const handleRevokeApiKey = (userId: string, email: string) => {
+  setDeleteTarget({
+    type: 'apikey',
+    id: userId,
+    email: email
+  });
+  setShowDeleteModal(true);
   };
-
-/*
-  const handleUpdateSubscription = async () => {
-    if (!selectedUser || !selectedPlan) {
-      showToast('Please select a plan', 'error');
-      return;
-    }
-
-    const plan = pricingPlans.find(p => p.id === selectedPlan);
-    if (!plan) return;
-
-    const emailLimit = customEmailLimit ? parseInt(customEmailLimit) : plan.emailLimit;
-    const expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + 1);
-
-    try {
-      const userDocRef = doc(db, 'clients', selectedUser.id);
-      await updateDoc(userDocRef, {
-        subscriptionStatus: selectedPlan,
-        subscriptionExpiry: expiryDate.toISOString().split('T')[0],
-        totalEmailsAllowed: emailLimit,
-        emailsRemaining: emailLimit,
-        updatedAt: serverTimestamp()
-      });
-
-      setUsers(users.map(u => 
-        u.id === selectedUser.id ? { 
-          ...u, 
-          subscriptionStatus: selectedPlan as 'free' | '2000c' | '6000c' | '10000c' | 'customc',
-          subscriptionExpiry: expiryDate.toISOString().split('T')[0],
-          totalEmailsAllowed: emailLimit,
-          emailsRemaining: emailLimit
-        } : u
-      ));
-
-      showToast(`Subscription updated for ${selectedUser.email}`, 'success');
-      setShowSubscriptionModal(false);
-      setSelectedUser(null);
-      setSelectedPlan('');
-      setCustomEmailLimit('');
-    } catch (error) {
-      console.error('Error updating subscription:', error);
-      showToast('Error updating subscription', 'error');
-    }
-  };
-*/
 
 const handleUpdateSubscription = async () => {
   try {
@@ -602,30 +564,14 @@ const handleUpdateSubscription = async () => {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
-
-    try {
-      await deleteDoc(doc(db, 'clients', userId));
-
-      const apiKeyQuery = query(collection(db, 'apikeys'), where('userId', '==', userId));
-      const apiKeySnapshot = await getDocs(apiKeyQuery);
-      for (const docSnapshot of apiKeySnapshot.docs) {
-        await deleteDoc(docSnapshot.ref);
-      }
-
-      const coinsQuery = query(collection(db, 'coins'), where('userId', '==', userId));
-      const coinsSnapshot = await getDocs(coinsQuery);
-      for (const docSnapshot of coinsSnapshot.docs) {
-        await deleteDoc(docSnapshot.ref);
-      }
-
-      setUsers(users.filter(u => u.id !== userId));
-      showToast('User deleted successfully', 'success');
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      showToast('Error deleting user', 'error');
-    }
+  const handleDeleteUser = (userId: string, email: string, displayName: string) => {
+  setDeleteTarget({
+    type: 'user',
+    id: userId,
+    email: email,
+    name: displayName
+  });
+  setShowDeleteModal(true);
   };
 
   const filteredUsers = users.filter(u => 
@@ -638,93 +584,143 @@ const handleUpdateSubscription = async () => {
     c.userEmail.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-// fetch purchase requests
-  const loadPurchaseRequests = async () => {
+const loadPayments = async () => {
   try {
-    const { fetchAllPurchaseRequests } = await import('../../_utils/firebase-operations');
-    const result = await fetchAllPurchaseRequests();
-    
+    const result = await fetchAllPayments();
     if (result.code === 777 && result.data) {
-      setPurchaseRequests(result.data.requests as PurchaseRequest[]);
+      // Filter out cancelled payments - only show pending and completed
+      console.log(result.data)
+      const filteredPayments = result.data.payments.filter(
+        (p: any) => p.paymentStatus !== 'cancelled' && p.paymentStatus !== 'failed'
+      );
+      setPayments(filteredPayments);
     }
   } catch (error) {
-    console.error('Error loading purchase requests:', error);
-    showToast('Error loading purchase requests', 'error');
+    console.error('Error loading payments:', error);
+    showToast('Error loading payments', 'error');
   }
-  };
+};
 
-  // Add handler functions for approve/reject
-const handleApprovePurchaseRequest = async (request: PurchaseRequest) => {
-  if (!confirm(`Approve ${request.amount} coins purchase for ${request.userEmail}?`)) return;
+// Add handlers
+const handleReviewPayment = (payment: Payment) => {
+  setSelectedPayment(payment);
+  setShowPaymentReviewModal(true);
+};
+
+const confirmApprovePayment = async () => {
+  if (!selectedPayment) return;
 
   try {
-    const { approvePurchaseRequest } = await import('../../_utils/firebase-operations');
-    const result = await approvePurchaseRequest({
-      requestId: request.id,
-      userId: request.userId,
-      amount: request.amount,
-      packageInfo: request.packageInfo,
-      packageId: request.packageId
+    const { approvePayment } = await import('../../_utils/firebase-operations');
+    const result = await approvePayment({
+      paymentId: selectedPayment.id,
+      userId: selectedPayment.userId,
+      coins: selectedPayment.coins,
+      packageId: selectedPayment.packageId,
+      packageInfo: selectedPayment.packageInfo
     });
 
     if (result.code === 777) {
-      showToast('Purchase request approved successfully', 'success');
-      loadPurchaseRequests();
-      loadDataFromFirebase(); // Refresh user data
+      showToast('Payment approved and coins credited successfully!', 'success');
+      setShowPaymentReviewModal(false);
+      setSelectedPayment(null);
+      loadPayments();
+      loadDataFromFirebase(); // Refresh user data to show updated coins
     } else {
-      showToast('Failed to approve request: ' + result.message, 'error');
+      showToast('Failed to approve payment: ' + result.message, 'error');
     }
   } catch (error) {
-    console.error('Error approving request:', error);
-    showToast('Error approving request', 'error');
+    console.error('Error approving payment:', error);
+    showToast('Error approving payment', 'error');
   }
 };
 
-const handleRejectPurchaseRequest = async (request: PurchaseRequest) => {
-  setSelectedRequest(request);
-  setShowRequestDetailsModal(true);
-};
-
-const confirmRejectRequest = async () => {
-  if (!selectedRequest) return;
-
+const handleRejectPayment = async (payment: Payment) => {
+  const reason = prompt('Rejection reason (optional):');
+  
   try {
-    const { rejectPurchaseRequest } = await import('../../_utils/firebase-operations');
-    const result = await rejectPurchaseRequest({
-      requestId: selectedRequest.id,
-      rejectionReason: rejectionReason || 'No reason provided'
+    const { updatePaymentStatus } = await import('../../_utils/firebase-operations');
+    const result = await updatePaymentStatus({
+      paymentId: payment.id,
+      status: 'failed',
+      paymentDetails: { rejectionReason: reason || 'Rejected by admin' }
     });
 
     if (result.code === 777) {
-      showToast('Purchase request rejected', 'success');
-      loadPurchaseRequests();
-      setShowRequestDetailsModal(false);
-      setSelectedRequest(null);
-      setRejectionReason('');
+      showToast('Payment rejected', 'success');
+      loadPayments();
     } else {
-      showToast('Failed to reject request: ' + result.message, 'error');
+      showToast('Failed to reject payment', 'error');
     }
   } catch (error) {
-    console.error('Error rejecting request:', error);
-    showToast('Error rejecting request', 'error');
+    console.error('Error rejecting payment:', error);
+    showToast('Error rejecting payment', 'error');
   }
 };
 
-const handleDeletePurchaseRequest = async (requestId: string) => {
-  if (!confirm('Delete this purchase request? This action cannot be undone.')) return;
+const handleDeletePayment = (paymentId: string, userName?: string) => {
+  setDeleteTarget({
+    type: 'payment',
+    id: paymentId,
+    name: userName
+  });
+  setShowDeleteModal(true);
+};
+
+const confirmDelete = async () => {
+  if (!deleteTarget) return;
 
   try {
-    const result = await deletePurchaseRequest({ requestId });
+    switch (deleteTarget.type) {
+      case 'payment':
+        await deleteDoc(doc(db, 'payments', deleteTarget.id));
+        showToast('Payment deleted successfully', 'success');
+        loadPayments();
+        break;
 
-    if (result.code === 777) {
-      showToast('Purchase request deleted', 'success');
-      loadPurchaseRequests();
-    } else {
-      showToast('Failed to delete request: ' + result.message, 'error');
+      case 'user':
+        await deleteDoc(doc(db, 'clients', deleteTarget.id));
+
+        const apiKeyQuery = query(collection(db, 'apikeys'), where('userId', '==', deleteTarget.id));
+        const apiKeySnapshot = await getDocs(apiKeyQuery);
+        for (const docSnapshot of apiKeySnapshot.docs) {
+          await deleteDoc(docSnapshot.ref);
+        }
+
+        const coinsQuery = query(collection(db, 'coins'), where('userId', '==', deleteTarget.id));
+        const coinsSnapshot = await getDocs(coinsQuery);
+        for (const docSnapshot of coinsSnapshot.docs) {
+          await deleteDoc(docSnapshot.ref);
+        }
+
+        setUsers(users.filter(u => u.id !== deleteTarget.id));
+        showToast('User deleted successfully', 'success');
+        break;
+
+      case 'apikey':
+        const apiQuery = query(collection(db, 'apikeys'), where('userId', '==', deleteTarget.id));
+        const apiSnapshot = await getDocs(apiQuery);
+
+        if (!apiSnapshot.empty) {
+          const docRef = apiSnapshot.docs[0].ref;
+          await updateDoc(docRef, {
+            apiKey: '',
+            updatedAt: serverTimestamp()
+          });
+        }
+
+        setUsers(users.map(u => 
+          u.id === deleteTarget.id ? { ...u, apiKey: undefined, hasApiKey: false } : u
+        ));
+        showToast('API Key revoked successfully', 'success');
+        break;
     }
   } catch (error) {
-    console.error('Error deleting request:', error);
-    showToast('Error deleting request', 'error');
+    console.error('Error during deletion:', error);
+    showToast(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+  } finally {
+    setShowDeleteModal(false);
+    setDeleteTarget(null);
   }
 };
 
@@ -762,7 +758,7 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
           { id: 'users', icon: Users, label: 'Users' },
           { id: 'campaigns', icon: Mail, label: 'Campaigns' },
           { id: 'billing', icon: DollarSign, label: 'Billing & Plans' },
-          { id: 'requests', icon: CreditCard, label: 'Purchase Requests' },
+          { id: 'payments', icon: DollarSign, label: 'Payments' },
           {id: 'logs', icon: Shield, label: 'Admin Activity'},
           { id: 'settings', icon: Settings, label: 'Settings' }
         ].map((tab) => (
@@ -776,7 +772,7 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
             }`}
           >
             <tab.icon className="w-4 h-4" />
-            {tab.label === 'Purchase Requests' ? tab.label + ' ' + purchaseRequests.filter(r => r.status === 'pending').length  : tab.label}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -886,146 +882,6 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
           </div>
         </div>
       )}
-
-{/*
-      {activeTab === 'users' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-lg p-4 shadow-md">
-            <div className="flex items-center gap-2">
-              <Search className="w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search users by email or name..."
-                className="flex-1 outline-none text-gray-700"
-              />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">User</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Plan</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Emails Left</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Coins</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">API Key</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUsers.map((user) => (
-                    <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">{user.displayName}</p>
-                          <p className="text-xs text-gray-500">{user.email}</p>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold capitalize ${getSubscriptionBadgeColor(user.subscriptionStatus)}`}>
-                          {user.subscriptionStatus}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="text-sm text-gray-800">{user.emailsRemaining.toLocaleString()} / {user.totalEmailsAllowed.toLocaleString()}</p>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                            <div 
-                              className="bg-blue-600 h-1.5 rounded-full" 
-                              style={{ width: `${(user.emailsRemaining / user.totalEmailsAllowed) * 100}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        {user.hasApiKey ? (
-                          <div className="flex items-center gap-2">
-                            <Key className="w-4 h-4 text-green-600" />
-                            <span className="text-xs text-gray-600 font-mono">{user.apiKey?.substring(0, 15)}...</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-400">No API Key</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {user.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              setSelectedUser(user);
-                              setShowSubscriptionModal(true);
-                            }}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="Manage subscription"
-                          >
-                            <CreditCard className="w-4 h-4" />
-                          </button>
-                          {user.hasApiKey ? (
-                            <button
-                              onClick={() => handleRevokeApiKey(user.id)}
-                              className="p-2 text-orange-600 hover:bg-orange-50 rounded transition-colors"
-                              title="Revoke API key"
-                            >
-                              <Key className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setSelectedUser(user);
-                                setShowApiModal(true);
-                              }}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors"
-                              title="Assign API key"
-                            >
-                              <Key className="w-4 h-4" />
-                            </button>
-                          )}
-                          {user.status === 'active' ? (
-                            <button
-                              onClick={() => handleSuspendUser(user.id)}
-                              className="p-2 text-orange-600 hover:bg-orange-50 rounded transition-colors"
-                              title="Suspend user"
-                            >
-                              <Ban className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleActivateUser(user.id)}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors"
-                              title="Activate user"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteUser(user.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="Delete user"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-*/}
 
 {activeTab === 'users' && (
   <div className="space-y-4">
@@ -1182,10 +1038,10 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
                       {/* API Key Management */}
                       {user.hasApiKey ? (
                         <button
-                          onClick={() => handleRevokeApiKey(user.id)}
+                          onClick={() => handleRevokeApiKey(user.id, user.email)}
                           className="p-2 text-orange-600 hover:bg-orange-50 rounded transition-colors cursor-pointer"
                           title="Revoke API key"
-                        >
+                           >
                           <Key className="w-4 h-4" />
                         </button>
                       ) : (
@@ -1222,12 +1078,12 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
                       
                       {/* Delete */}
                       <button
-                        onClick={() => handleDeleteUser(user.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                        title="Delete user"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      onClick={() => handleDeleteUser(user.id, user.email, user.displayName)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                      title="Delete user"
+                       >
+                      <Trash2 className="w-4 h-4" />
+                       </button>
                     </div>
                   </td>
                 </tr>
@@ -1363,39 +1219,6 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
           </div>
         </div>
       )}
-
-      {/* Billing & Plans Tab 
-      {activeTab === 'billing' && (
-        <div className="space-y-6">
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {pricingPlans.map((plan) => (
-              <div key={plan.id} className="bg-white rounded-lg p-6 shadow-md border-2 border-gray-200 hover:border-blue-500 transition-colors">
-                <h3 className="text-xl font-bold text-gray-800">{plan.name}</h3>
-                <div className="mt-4">
-                  <span className="text-3xl font-bold text-gray-900">${plan.price}</span>
-                  <span className="text-gray-600">/month</span>
-                </div>
-                <div className="mt-4">
-                  <p className="text-sm text-gray-600 font-medium">{plan.emailLimit.toLocaleString()} emails/month</p>
-                </div>
-                <ul className="mt-6 space-y-3">
-                  {plan.features.map((feature, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                      <span className="text-sm text-gray-600">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-6 text-center">
-                  <p className="text-sm text-gray-500">
-                    {users.filter(u => u.subscriptionStatus === plan.id).length} active users
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        */}
 
         {activeTab === 'billing' && (
          <div className="space-y-6">
@@ -1821,26 +1644,40 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
         </div>
       )}
 
-{/*Add the Purchase Requests Tab content*/}
-{activeTab === 'requests' && (
+
+{activeTab === 'payments' && (
   <div className="space-y-4">
-    {/* Stats Cards */}
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div className="bg-white rounded-lg p-4 shadow-md">
+    {/* Payment Statistics */}
+    <div className="flex gap-4 w-full">
+      <div className="bg-white rounded-lg p-4 shadow-md w-full">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-blue-100 rounded-lg">
+            <DollarSign className="w-6 h-6 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Total Payments</p>
+            <p className="text-2xl font-bold text-gray-800">{payments.length}</p>
+            <p className="text-xs text-gray-500 mt-1">All transactions</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg p-4 shadow-md w-full">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-yellow-100 rounded-lg">
             <Clock className="w-6 h-6 text-yellow-600" />
           </div>
           <div>
-            <p className="text-sm text-gray-600">Pending</p>
+            <p className="text-sm text-gray-600">Awaiting Review</p>
             <p className="text-2xl font-bold text-gray-800">
-              {purchaseRequests.filter(r => r.status === 'pending').length}
+              {payments.filter(p => p.paymentStatus === 'pending').length}
             </p>
+            <p className="text-xs text-gray-500 mt-1">Need admin action</p>
           </div>
         </div>
       </div>
-      
-      <div className="bg-white rounded-lg p-4 shadow-md">
+
+      <div className="bg-white rounded-lg p-4 shadow-md w-full">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-green-100 rounded-lg">
             <CheckCircle className="w-6 h-6 text-green-600" />
@@ -1848,36 +1685,21 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
           <div>
             <p className="text-sm text-gray-600">Approved</p>
             <p className="text-2xl font-bold text-gray-800">
-              {purchaseRequests.filter(r => r.status === 'approved').length}
+              {payments.filter(p => p.paymentStatus === 'completed').length}
             </p>
+            <p className="text-xs text-gray-500 mt-1">Coins credited</p>
           </div>
         </div>
       </div>
-      
-      <div className="bg-white rounded-lg p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-red-100 rounded-lg">
-            <X className="w-6 h-6 text-red-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Rejected</p>
-            <p className="text-2xl font-bold text-gray-800">
-              {purchaseRequests.filter(r => r.status === 'rejected').length}
-            </p>
-          </div>
-        </div>
-      </div>
-      
-     
     </div>
 
-    {/* Requests Table */}
+    {/* Payments Table */}
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-800">Purchase Requests</h3>
+          <h3 className="text-lg font-semibold text-gray-800">Payment Transactions</h3>
           <button
-            onClick={loadPurchaseRequests}
+            onClick={loadPayments}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
           >
             <RefreshCw className="w-4 h-4" />
@@ -1892,31 +1714,65 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
             <tr>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">User</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Package</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Payment Method</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Amount</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Coins</th>
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Date</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {purchaseRequests.length === 0 ? (
+            {payments.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-8 text-center text-gray-500">
-                  No purchase requests found
+                  No payments found
                 </td>
               </tr>
             ) : (
-              purchaseRequests.map((request) => (
-                <tr key={request.id} className="border-b border-gray-100 hover:bg-gray-50">
+              payments.map((payment) => (
+                <tr key={payment.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4">
                     <div>
-                      <p className="text-sm font-medium text-gray-800">{request.userName}</p>
-                      <p className="text-xs text-gray-500">{request.userEmail}</p>
+                      <p className="text-sm font-medium text-gray-800">{payment.userName}</p>
+                      <p className="text-xs text-gray-500">{payment.userEmail}</p>
                     </div>
                   </td>
                   
                   <td className="py-3 px-4">
-                    <p className="text-sm text-gray-800">{request.packageInfo}</p>
+                    <p className="text-sm text-gray-800">{payment.packageInfo}</p>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      {payment.paymentMethod === 'mpesa' ? (
+                        <>
+                          <div className="bg-green-100 p-1.5 rounded">
+                            <Smartphone className="w-4 h-4 text-green-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">M-Pesa</p>
+                            {payment.mpesaPhone && (
+                              <p className="text-xs text-gray-500">+{payment.mpesaPhone}</p>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="bg-blue-100 p-1.5 rounded">
+                            <CreditCard className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">Card</p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                  
+                  <td className="py-3 px-4">
+                    <p className="text-sm font-bold text-gray-800">
+                      Kes. {payment.amount.toLocaleString()}
+                    </p>
                   </td>
                   
                   <td className="py-3 px-4">
@@ -1926,55 +1782,43 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
                       </svg>
                       <span className="text-sm font-bold text-amber-600">
-                        {request.amount.toLocaleString()}
+                        {payment.coins.toLocaleString()}
                       </span>
                     </div>
                   </td>
                   
                   <td className="py-3 px-4">
-                    <p className="text-sm text-gray-600">
-                      {request.createdAt.toLocaleDateString()}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {request.createdAt.toLocaleTimeString()}
-                    </p>
-                  </td>
-                  
-                  <td className="py-3 px-4">
                     <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                      request.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      request.status === 'approved' ? 'bg-green-100 text-green-800' :
-                      'bg-red-100 text-red-800'
+                      payment.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                      payment.paymentStatus === 'completed' ? 'bg-green-100 text-green-800' :
+                      payment.paymentStatus === 'failed' ? 'bg-red-100 text-red-800' :
+                      'bg-gray-100 text-gray-800'
                     }`}>
-                      {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                      {payment.paymentStatus.charAt(0).toUpperCase() + payment.paymentStatus.slice(1)}
                     </span>
                   </td>
                   
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
-                      {request.status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => handleApprovePurchaseRequest(request)}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors cursor-pointer"
-                            title="Approve request"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleRejectPurchaseRequest(request)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                            title="Reject request"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
+                      {/* Review Button - Always show for pending and completed */}
                       <button
-                        onClick={() => handleDeletePurchaseRequest(request.id)}
-                        className="p-2 text-gray-600 hover:bg-gray-50 rounded transition-colors cursor-pointer"
-                        title="Delete request"
+                        onClick={() => handleReviewPayment(payment)}
+                        className={`p-2 rounded transition-colors cursor-pointer ${
+                          payment.paymentStatus === 'pending' 
+                            ? 'text-blue-600 hover:bg-blue-50' 
+                            : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                        title={payment.paymentStatus === 'pending' ? 'Review & Approve' : 'View Details'}
                       >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => handleDeletePayment(payment.id, payment.userName)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        title="Delete payment"
+                        >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -1984,6 +1828,212 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* Payment Review Modal */}
+{showPaymentReviewModal && selectedPayment && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className={`p-3 rounded-lg ${
+            selectedPayment.paymentStatus === 'pending' ? 'bg-yellow-100' :
+            selectedPayment.paymentStatus === 'completed' ? 'bg-green-100' :
+            'bg-red-100'
+          }`}>
+            {selectedPayment.paymentStatus === 'pending' ? (
+              <Clock className="w-6 h-6 text-yellow-600" />
+            ) : selectedPayment.paymentStatus === 'completed' ? (
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            ) : (
+              <X className="w-6 h-6 text-red-600" />
+            )}
+          </div>
+          <div>
+            <h3 className="text-xl font-semibold text-gray-800">Payment Review</h3>
+            <p className="text-sm text-gray-500">
+              {selectedPayment.paymentStatus === 'pending' 
+                ? 'Review and approve this payment' 
+                : 'Payment details'}
+            </p>
+          </div>
+        </div>
+        <button 
+          onClick={() => {
+            setShowPaymentReviewModal(false);
+            setSelectedPayment(null);
+          }} 
+          className="text-gray-400 hover:text-gray-600"
+        >
+          <X className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* Payment Status Badge */}
+      <div className="mb-6">
+        <span className={`px-4 py-2 rounded-full text-sm font-semibold ${
+          selectedPayment.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+          selectedPayment.paymentStatus === 'completed' ? 'bg-green-100 text-green-800' :
+          'bg-red-100 text-red-800'
+        }`}>
+          Status: {selectedPayment.paymentStatus.toUpperCase()}
+        </span>
+      </div>
+
+      {/* User Information */}
+      <div className="bg-blue-50 rounded-lg p-4 mb-4">
+        <h4 className="text-sm font-semibold text-blue-900 mb-3">User Information</h4>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-xs text-blue-700">Name</p>
+            <p className="text-sm font-medium text-blue-900">{selectedPayment.userName}</p>
+          </div>
+          <div>
+            <p className="text-xs text-blue-700">Email</p>
+            <p className="text-sm font-medium text-blue-900">{selectedPayment.userEmail}</p>
+          </div>
+          <div>
+            <p className="text-xs text-blue-700">User ID</p>
+            <p className="text-sm font-mono text-blue-900">{selectedPayment.userId}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Details */}
+      <div className="bg-gray-50 rounded-lg p-4 mb-4">
+        <h4 className="text-sm font-semibold text-gray-800 mb-3">Payment Details</h4>
+        <div className="space-y-3">
+          <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+            <span className="text-sm text-gray-600">Package</span>
+            <span className="text-sm font-semibold text-gray-900">{selectedPayment.packageInfo}</span>
+          </div>
+          
+          <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+            <span className="text-sm text-gray-600">Amount Paid</span>
+            <span className="text-lg font-bold text-gray-900">Kes. {selectedPayment.amount.toLocaleString()}</span>
+          </div>
+          
+          <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+            <span className="text-sm text-gray-600">Coins to Credit</span>
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
+              </svg>
+              <span className="text-lg font-bold text-amber-600">
+                {selectedPayment.coins.toLocaleString()} coins
+              </span>
+            </div>
+          </div>
+          
+          <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+            <span className="text-sm text-gray-600">Payment Method</span>
+            <div className="flex items-center gap-2">
+              {selectedPayment.paymentMethod === 'mpesa' ? (
+                <>
+                  <Smartphone className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-medium text-gray-900">M-Pesa</span>
+                </>
+              ) : (
+                <>
+                  <CreditCard className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium text-gray-900">Card</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {selectedPayment.mpesaPhone && (
+            <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+              <span className="text-sm text-gray-600">M-Pesa Phone</span>
+              <span className="text-sm font-mono text-gray-900">+{selectedPayment.mpesaPhone}</span>
+            </div>
+          )}
+
+          {selectedPayment.transactionRef && (
+            <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+              <span className="text-sm text-gray-600">Transaction Reference</span>
+              <span className="text-sm font-mono text-gray-900 bg-gray-200 px-2 py-1 rounded">
+                {selectedPayment.transactionRef}
+              </span>
+            </div>
+          )}
+
+          {selectedPayment.mpesaCheckoutRequestId && (
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Checkout Request ID</span>
+              <span className="text-xs font-mono text-gray-600 bg-gray-200 px-2 py-1 rounded max-w-xs truncate" title={selectedPayment.mpesaCheckoutRequestId}>
+                {selectedPayment.mpesaCheckoutRequestId}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Warning/Info Messages */}
+      {selectedPayment.paymentStatus === 'pending' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-semibold text-yellow-900">Review Required</h4>
+              <p className="text-sm text-yellow-800 mt-1">
+                Please verify the transaction reference and payment details before approving. 
+                Once approved, {selectedPayment.coins.toLocaleString()} coins will be immediately credited to the user's account.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedPayment.paymentStatus === 'completed' && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-semibold text-green-900">Payment Approved</h4>
+              <p className="text-sm text-green-800 mt-1">
+                This payment has been approved and {selectedPayment.coins.toLocaleString()} coins have been credited to the user's account.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-gray-200">
+        <button
+          onClick={() => {
+            setShowPaymentReviewModal(false);
+            setSelectedPayment(null);
+          }}
+          className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          Close
+        </button>
+        
+        {selectedPayment.paymentStatus === 'pending' && (
+          <>
+            <button
+              onClick={() => handleRejectPayment([selectedPayment])}
+              className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+            >
+              <X className="w-4 h-4" />
+              Reject Payment
+            </button>
+            
+            <button
+              onClick={confirmApprovePayment}
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Approve & Credit Coins
+            </button>
+          </>
+        )}
       </div>
     </div>
   </div>
@@ -2302,11 +2352,144 @@ const handleDeletePurchaseRequest = async (requestId: string) => {
           Cancel
         </button>
         <button
-          onClick={confirmRejectRequest}
+          onClick={handleRejectPayment}
           className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center gap-2"
         >
           <X className="w-4 h-4" />
           Reject Request
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* Delete Confirmation Modal */}
+{showDeleteModal && deleteTarget && (
+  <div className="fixed inset-0 backdrop-blur-[10px] bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="bg-slate-100 rounded-lg p-6 max-w-md w-full">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-red-100 rounded-lg">
+            <AlertCircle className="w-6 h-6 text-red-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-800">
+            Confirm {deleteTarget.type === 'apikey' ? 'Revocation' : 'Deletion'}
+          </h3>
+        </div>
+        <button 
+          onClick={() => {
+            setShowDeleteModal(false);
+            setDeleteTarget(null);
+          }} 
+          className="text-gray-400 hover:text-gray-600"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Warning Content */}
+      <div className="mb-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+          <p className="text-sm font-semibold text-red-900 mb-2">
+            {deleteTarget.type === 'payment' && ' Delete Payment Record'}
+            {deleteTarget.type === 'user' && ' Delete User Account'}
+            {deleteTarget.type === 'apikey' && ' Revoke API Key'}
+          </p>
+          <p className="text-sm text-red-800">
+            {deleteTarget.type === 'payment' && 
+              'This will permanently remove the payment record from the database.'
+            }
+            {deleteTarget.type === 'user' && 
+              'This will permanently delete the user account, all associated data, API keys, and coin balance. This action cannot be undone.'
+            }
+            {deleteTarget.type === 'apikey' && 
+              'This will revoke the user\'s API key. They will lose access to API features until a new key is assigned.'
+            }
+          </p>
+        </div>
+
+        {/* Item Details */}
+        <div className="bg-gray-50 rounded-lg p-4">
+          <p className="text-xs text-gray-600 mb-2">
+            {deleteTarget.type === 'payment' && 'Payment for:'}
+            {deleteTarget.type === 'user' && 'User Details:'}
+            {deleteTarget.type === 'apikey' && 'Revoking API key for:'}
+          </p>
+          {deleteTarget.name && (
+            <p className="text-sm font-medium text-gray-900">{deleteTarget.name}</p>
+          )}
+          {deleteTarget.email && (
+            <p className="text-sm text-gray-700 mt-1">{deleteTarget.email}</p>
+          )}
+          <p className="text-xs text-gray-500 mt-2 font-mono">ID: {deleteTarget.id.substring(0, 16)}...</p>
+        </div>
+      </div>
+
+      {/* Confirmation Text */}
+      <div className="mb-6">
+        <p className="text-sm text-gray-700">
+          {deleteTarget.type === 'payment' && 'Are you sure you want to delete this payment record?'}
+          {deleteTarget.type === 'user' && 'Type "DELETE" below to confirm you want to permanently delete this user account:'}
+          {deleteTarget.type === 'apikey' && 'Are you sure you want to revoke this API key?'}
+        </p>
+        
+        {deleteTarget.type === 'user' && (
+          <input
+            type="text"
+            placeholder="Type DELETE to confirm"
+            className="w-full mt-3 px-3 py-2 border border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+            id="deleteConfirmInput"
+          />
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex gap-3 justify-end">
+        <button
+          onClick={() => {
+            setShowDeleteModal(false);
+            setDeleteTarget(null);
+          }}
+          className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+        
+        <button
+          onClick={() => {
+            if (deleteTarget.type === 'user') {
+              const input = document.getElementById('deleteConfirmInput') as HTMLInputElement;
+              if (input && input.value !== 'DELETE') {
+                showToast('Please type DELETE to confirm', 'error');
+                return;
+              }
+            }
+            confirmDelete();
+          }}
+          className={`px-6 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+            deleteTarget.type === 'apikey' 
+              ? 'bg-orange-600 hover:bg-orange-700' 
+              : 'bg-red-600 hover:bg-red-700'
+          } text-white`}
+        >
+          {deleteTarget.type === 'payment' && (
+            <>
+              <Trash2 className="w-4 h-4" />
+              Delete Payment
+            </>
+          )}
+          {deleteTarget.type === 'user' && (
+            <>
+              <Trash2 className="w-4 h-4" />
+              Delete User
+            </>
+          )}
+          {deleteTarget.type === 'apikey' && (
+            <>
+              <Key className="w-4 h-4" />
+              Revoke API Key
+            </>
+          )}
         </button>
       </div>
     </div>

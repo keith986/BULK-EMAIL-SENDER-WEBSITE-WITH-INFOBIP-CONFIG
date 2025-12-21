@@ -16,6 +16,7 @@ const COLLECTION_PURCHASE_REQUESTS = "purchaseRequests";
 const COLLECTION_OTP_NAME = "otps";
 const COLLECTION_ADMIN_LOGS_NAME = "adminLoginLogs";
 const COLLECTION_CLIENT_LOGS_NAME = "clientLoginLogs";
+const COLLECTION_PAYMENTS = "payments";
 
 // Define contact limits for each package
 export const PACKAGE_LIMITS = {
@@ -1021,208 +1022,6 @@ export async function createPurchaseRequest({
   }
 }
 
-// Fetch all purchase requests (for admin)
-export async function fetchAllPurchaseRequests() {
-  try {
-    const querySnapshot = await getDocs(collection(db, COLLECTION_PURCHASE_REQUESTS));
-
-    const requests = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate() || new Date()
-    }));
-
-    // Sort by date descending (newest first)
-    requests.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-    return {
-      code: 777,
-      message: 'Purchase requests fetched successfully',
-      data: { requests }
-    };
-  } catch (error) {
-    console.error('Error fetching purchase requests:', error);
-    return {
-      code: 500,
-      message: 'Failed to fetch purchase requests',
-      error: error instanceof Error ? error.message : String(error),
-      data: { requests: [] }
-    };
-  }
-}
-
-// Fetch purchase requests for a specific user (for client to see their pending requests)
-export async function fetchUserPurchaseRequests({ userId }: { userId: string }) {
-  try {
-    const q = query(
-      collection(db, COLLECTION_PURCHASE_REQUESTS), 
-      where('userId', '==', userId)
-    );
-    const querySnapshot = await getDocs(q);
-
-    const requests = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate() || new Date()
-    }));
-
-    // Sort by date descending
-    requests.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-    return {
-      code: 777,
-      message: 'User purchase requests fetched successfully',
-      data: { requests }
-    };
-  } catch (error) {
-    console.error('Error fetching user purchase requests:', error);
-    return {
-      code: 500,
-      message: 'Failed to fetch user purchase requests',
-      error: error instanceof Error ? error.message : String(error),
-      data: { requests: [] }
-    };
-  }
-}
-
-// Approve purchase request (admin action)
-export async function approvePurchaseRequest({ 
-  requestId,
-  userId,
-  amount,
-  packageInfo,
-  packageId
-}: { 
-  requestId: string;
-  userId: string;
-  amount: number;
-  packageInfo: string;
-  packageId: string;
-}) {
-  try {
-    // Get current coins
-    const q = query(collection(db, COLLECTION_COINS_NAME), where('userId', '==', userId));
-    const querySnapshot = await getDocs(q);
-
-    let newBalance = amount;
-    
-    if (!querySnapshot.empty) {
-      const coinsDoc = querySnapshot.docs[0];
-      const data = coinsDoc.data() as { coins?: number };
-      const currentCoins = data.coins || 0;
-      newBalance = currentCoins + amount;
-
-      // Update coins
-      await updateDoc(doc(db, COLLECTION_COINS_NAME, coinsDoc.id), {
-        coins: newBalance,
-        updatedAt: serverTimestamp()
-      });
-    } else {
-      // Create new coins document
-      await addDoc(collection(db, COLLECTION_COINS_NAME), {
-        userId: userId,
-        coins: amount,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-    }
-
-    // Update user's subscription status in clients collection
-    const expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + 1);
-
-    await updateDoc(doc(db, COLLECTIONS_CLIENTS, userId), {
-      subscriptionStatus: packageId,
-      subscriptionExpiry: expiryDate.toISOString().split('T')[0],
-      totalEmailsAllowed: amount,
-      emailsRemaining: amount,
-      updatedAt: serverTimestamp()
-    });
-
-    // Create transaction record
-    await addDoc(collection(db, COLLECTION_TRANSACTIONS_NAME), {
-      userId: userId,
-      amount: amount,
-      type: 'purchase',
-      description: `Purchased ${packageInfo} - Approved by Admin`,
-      date: serverTimestamp(),
-      status: 'completed',
-      packageInfo: packageInfo
-    });
-
-    // Update purchase request status
-    await updateDoc(doc(db, COLLECTION_PURCHASE_REQUESTS, requestId), {
-      status: 'approved',
-      approvedAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-
-    return {
-      code: 777,
-      message: 'Purchase request approved successfully',
-      data: { newBalance, amount }
-    };
-  } catch (error) {
-    console.error('Error approving purchase request:', error);
-    return {
-      code: 500,
-      message: 'Failed to approve purchase request',
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-
-// Reject purchase request (admin action)
-export async function rejectPurchaseRequest({ 
-  requestId,
-  rejectionReason
-}: { 
-  requestId: string;
-  rejectionReason?: string;
-}) {
-  try {
-    await updateDoc(doc(db, COLLECTION_PURCHASE_REQUESTS, requestId), {
-      status: 'rejected',
-      rejectionReason: rejectionReason || 'No reason provided',
-      rejectedAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-
-    return {
-      code: 777,
-      message: 'Purchase request rejected successfully'
-    };
-  } catch (error) {
-    console.error('Error rejecting purchase request:', error);
-    return {
-      code: 500,
-      message: 'Failed to reject purchase request',
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-
-// Delete purchase request (admin cleanup)
-export async function deletePurchaseRequest({ requestId }: { requestId: string }) {
-  try {
-    await deleteDoc(doc(db, COLLECTION_PURCHASE_REQUESTS, requestId));
-
-    return {
-      code: 777,
-      message: 'Purchase request deleted successfully'
-    };
-  } catch (error) {
-    console.error('Error deleting purchase request:', error);
-    return {
-      code: 500,
-      message: 'Failed to delete purchase request',
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-
 // Get user's contact limit based on their subscription
 export async function getUserContactLimit({ 
   userId 
@@ -1999,5 +1798,325 @@ export const signUpWithGoogleAccount = async () : Promise<{code: number, message
     const errorCode = (error as { code?: string } | undefined)?.code ?? null;
     console.error('signUpWithGoogleAccount error:', error);
     return { code: 101, message, errorCode };
+  }
+}
+
+// Create payment record
+export async function createPaymentRecord({
+  userId,
+  userEmail,
+  userName,
+  amount,
+  coins,
+  packageId,
+  packageInfo,
+  paymentMethod,
+  mpesaPhone,
+  cardLast4,
+  cardBrand
+}: {
+  userId: string;
+  userEmail: string;
+  userName: string;
+  amount: number;
+  coins: number;
+  packageId: string;
+  packageInfo: string;
+  paymentMethod: 'mpesa' | 'card';
+  mpesaPhone?: string;
+  cardLast4?: string;
+  cardBrand?: string;
+}): Promise<{ code: number; message: string; paymentId?: string }> {
+  try {
+    const paymentData = {
+      userId,
+      userEmail,
+      userName,
+      amount,
+      coins,
+      packageId,
+      packageInfo,
+      paymentMethod,
+      paymentStatus: 'pending',
+      mpesaPhone: mpesaPhone || null,
+      cardLast4: cardLast4 || null,
+      cardBrand: cardBrand || null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    const docRef = await addDoc(collection(db, COLLECTION_PAYMENTS), paymentData);
+
+    return {
+      code: 777,
+      message: 'Payment record created successfully',
+      paymentId: docRef.id
+    };
+  } catch (error) {
+    console.error('Error creating payment record:', error);
+    return {
+      code: 500,
+      message: 'Failed to create payment record',
+    };
+  }
+}
+
+// Update payment status
+export async function updatePaymentStatus({
+  paymentId,
+  status,
+  transactionRef,
+  mpesaCheckoutRequestId,
+  paymentDetails
+}: {
+  paymentId: string;
+  status: 'pending' | 'completed' | 'failed' | 'cancelled';
+  transactionRef?: string;
+  mpesaCheckoutRequestId?: string;
+  paymentDetails?: Record<string, unknown>;
+}): Promise<{ code: number; message: string }> {
+  try {
+    const updates: Record<string, unknown> = {
+      paymentStatus: status,
+      updatedAt: serverTimestamp()
+    };
+
+    if (transactionRef) updates.transactionRef = transactionRef;
+    if (mpesaCheckoutRequestId) updates.mpesaCheckoutRequestId = mpesaCheckoutRequestId;
+    if (paymentDetails) updates.paymentDetails = paymentDetails;
+
+    await updateDoc(doc(db, COLLECTION_PAYMENTS, paymentId), updates);
+
+    return {
+      code: 777,
+      message: 'Payment status updated successfully'
+    };
+  } catch (error) {
+    console.error('Error updating payment status:', error);
+    return {
+      code: 500,
+      message: 'Failed to update payment status'
+    };
+  }
+}
+
+// Fetch all payments (for admin)
+export async function fetchAllPayments(): Promise<{
+  code: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: { payments: any[] }; 
+  message: string;
+}> {
+  try {
+    const querySnapshot = await getDocs(collection(db, COLLECTION_PAYMENTS));
+
+    const payments = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    return {
+      code: 777,
+      data: { payments },
+      message: 'Payments fetched successfully'
+    };
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch payments',
+      data: { payments: [] }
+    };
+  }
+}
+
+// Fetch user payments
+export async function fetchUserPayments({
+  userId
+}: {
+  userId: string;
+}): Promise<{
+  code: number;
+  data?: { payments: Record<string, unknown>[] };
+  message: string;
+}> {
+  try {
+    const q = query(
+      collection(db, COLLECTION_PAYMENTS),
+      where('userId', '==', userId)
+    );
+    const querySnapshot = await getDocs(q);
+
+    const payments = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        userId: data.userId || '',
+        userEmail: data.userEmail || '',
+        userName: data.userName || '',
+        amount: data.amount || 0,
+        coins: data.coins || 0,
+        packageId: data.packageId || '',
+        packageInfo: data.packageInfo || '',
+        paymentMethod: data.paymentMethod || 'mpesa',
+        paymentStatus: data.paymentStatus || 'pending',
+        transactionRef: data.transactionRef || '',
+        mpesaPhone: data.mpesaPhone || '',
+        mpesaCheckoutRequestId: data.mpesaCheckoutRequestId || '',
+        manuallyVerified: data.manuallyVerified || false,
+        paymentDetails: data.paymentDetails || {},
+        mpesaCompletedAt: data.mpesaCompletedAt || null,
+        approvedAt: data.approvedAt?.toDate() || null,
+        rejectionReason: data.rejectionReason || null,
+      };
+    }) as Record<string, unknown>[];
+
+
+    return {
+      code: 777,
+      data: { payments },
+      message: 'User payments fetched successfully'
+    };
+  } catch (error) {
+    console.error('Error fetching user payments:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch user payments',
+      data: { payments: [] }
+    };
+  }
+}
+
+// Approve payment and allocate coins (admin action)
+export async function approvePayment({
+  paymentId,
+  userId,
+  coins,
+  packageId,
+  packageInfo
+}: {
+  paymentId: string;
+  userId: string;
+  coins: number;
+  packageId: string;
+  packageInfo: string;
+}): Promise<{ code: number; message: string }> {
+  try {
+    // Get payment details to ensure it exists and is pending
+    const paymentDoc = await getDoc(doc(db, COLLECTION_PAYMENTS, paymentId));
+    
+    if (!paymentDoc.exists()) {
+      return {
+        code: 404,
+        message: 'Payment not found'
+      };
+    }
+
+    const paymentData = paymentDoc.data();
+    
+    if (paymentData.paymentStatus === 'completed') {
+      return {
+        code: 400,
+        message: 'Payment already approved and coins credited'
+      };
+    }
+
+    // Get current coins balance
+    const coinsQuery = query(collection(db, COLLECTION_COINS_NAME), where('userId', '==', userId));
+    const coinsSnapshot = await getDocs(coinsQuery);
+
+    let newBalance = coins;
+    
+    if (!coinsSnapshot.empty) {
+      // Update existing coins document
+      const coinsDoc = coinsSnapshot.docs[0];
+      const currentCoins = coinsDoc.data().coins || 0;
+      newBalance = currentCoins + coins;
+
+      await updateDoc(doc(db, COLLECTION_COINS_NAME, coinsDoc.id), {
+        coins: newBalance,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      // Create new coins document
+      await addDoc(collection(db, COLLECTION_COINS_NAME), {
+        userId: userId,
+        coins: coins,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    // Update user's subscription in clients collection
+    const expiryDate = new Date();
+    expiryDate.setMonth(expiryDate.getMonth() + 1);
+
+    await updateDoc(doc(db, 'clients', userId), {
+      subscriptionStatus: packageId,
+      subscriptionExpiry: expiryDate.toISOString().split('T')[0],
+      totalEmailsAllowed: coins,
+      emailsRemaining: coins,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Create transaction record
+    await addDoc(collection(db, COLLECTION_TRANSACTIONS_NAME), {
+      userId: userId,
+      amount: coins,
+      type: 'purchase',
+      description: `M-Pesa payment approved by admin - ${packageInfo}`,
+      date: serverTimestamp(),
+      status: 'completed',
+      packageInfo: packageInfo,
+      price: paymentData.amount,
+      transactionRef: paymentData.transactionRef || paymentData.paymentDetails?.mpesaReceiptNumber,
+    });
+
+    // Update payment status to completed
+    await updateDoc(doc(db, COLLECTION_PAYMENTS, paymentId), {
+      paymentStatus: 'completed',
+      approvedAt: serverTimestamp(),
+      approvedBy: 'admin', // You can pass admin email if available
+      updatedAt: serverTimestamp(),
+    });
+
+    return {
+      code: 777,
+      message: `Payment approved successfully. ${coins} coins credited to user.`
+    };
+  } catch (error) {
+    console.error('Error approving payment:', error);
+    return {
+      code: 500,
+      message: 'Failed to approve payment: ' + (error instanceof Error ? error.message : String(error))
+    };
+  }
+}
+
+export async function rejectPayment({
+  paymentId,
+  rejectionReason
+}: {
+  paymentId: string;
+  rejectionReason?: string;
+}): Promise<{ code: number; message: string }> {
+  try {
+    await updateDoc(doc(db, COLLECTION_PAYMENTS, paymentId), {
+      paymentStatus: 'rejected',
+      rejectionReason: rejectionReason || 'Rejected by admin',
+      rejectedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    return {
+      code: 777,
+      message: 'Payment rejected successfully'
+    };
+  } catch (error) {
+    console.error('Error rejecting payment:', error);
+    return {
+      code: 500,
+      message: 'Failed to reject payment'
+    };
   }
 }

@@ -8,9 +8,7 @@ export default function AdminProtected({ children }: { children: React.ReactNode
   const router = useRouter();
   
   const ADMIN_EMAILS = [
-    'admin@example.com',
-    'superadmin@example.com',
-    'keith@gmail.com'
+    'keithkelly986@gmail.com'
     // Add your admin emails here
   ];
 
