@@ -17,6 +17,13 @@ const COLLECTION_OTP_NAME = "otps";
 const COLLECTION_ADMIN_LOGS_NAME = "adminLoginLogs";
 const COLLECTION_CLIENT_LOGS_NAME = "clientLoginLogs";
 const COLLECTION_PAYMENTS = "payments";
+const COLLECTION_SYSTEM_SETTINGS = "systemSettings";
+const SYSTEM_SETTINGS_DOC_ID = "config";
+
+export interface SystemSettings {
+  maxRecipientsPerCampaign: number;
+  registrationEnabled: boolean;
+}
 
 // Define contact limits for each package
 export const PACKAGE_LIMITS = {
@@ -2117,6 +2124,243 @@ export async function rejectPayment({
     return {
       code: 500,
       message: 'Failed to reject payment'
+    };
+  }
+}
+
+export async function fetchSystemSettings(): Promise<{
+  code: number;
+  data?: SystemSettings;
+  message: string;
+}> {
+  try {
+    const settingsDoc = await getDoc(doc(db, COLLECTION_SYSTEM_SETTINGS, SYSTEM_SETTINGS_DOC_ID));
+    
+    if (settingsDoc.exists()) {
+      const data = settingsDoc.data() as SystemSettings;
+      return {
+        code: 777,
+        data: {
+          maxRecipientsPerCampaign: data.maxRecipientsPerCampaign || 2000,
+          registrationEnabled: data.registrationEnabled !== false
+        },
+        message: 'Settings fetched successfully'
+      };
+    } else {
+      const defaultSettings: SystemSettings = {
+        maxRecipientsPerCampaign: 2000,
+        registrationEnabled: true
+      };
+      return {
+        code: 777,
+        data: defaultSettings,
+        message: 'Default settings returned'
+      };
+    }
+  } catch (error) {
+    console.error('Error fetching system settings:', error);
+    return {
+      code: 500,
+      message: 'Failed to fetch system settings'
+    };
+  }
+}
+
+export async function saveSystemSettings({
+  settings
+}: {
+  settings: SystemSettings;
+}): Promise<{ code: number; message: string }> {
+  try {
+    await setDoc(doc(db, COLLECTION_SYSTEM_SETTINGS, SYSTEM_SETTINGS_DOC_ID), {
+      ...settings,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    return {
+      code: 777,
+      message: 'Settings saved successfully'
+    };
+  } catch (error) {
+    console.error('Error saving system settings:', error);
+    return {
+      code: 500,
+      message: 'Failed to save system settings'
+    };
+  }
+}
+
+export async function deleteOldCampaigns(): Promise<{
+  code: number;
+  message: string;
+  deletedCount?: number;
+}> {
+  try {
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+    const campaignsSnapshot = await getDocs(collection(db, COLLECTION_CAMPAIGNS_NAME));
+    let deletedCount = 0;
+
+    for (const campaignDoc of campaignsSnapshot.docs) {
+      const data = campaignDoc.data();
+      const createdAt = data.createdAt?.toDate?.() || new Date(0);
+      
+      if (createdAt < ninetyDaysAgo) {
+        await deleteDoc(campaignDoc.ref);
+        deletedCount++;
+      }
+    }
+
+    return {
+      code: 777,
+      message: `Successfully deleted ${deletedCount} old campaign(s)`,
+      deletedCount
+    };
+  } catch (error) {
+    console.error('Error deleting old campaigns:', error);
+    return {
+      code: 500,
+      message: 'Failed to delete old campaigns'
+    };
+  }
+}
+
+export async function exportAllData(): Promise<{
+  code: number;
+  data?: {
+    users: unknown[];
+    campaigns: unknown[];
+    recipients: unknown[];
+    transactions: unknown[];
+    payments: unknown[];
+    exportDate: string;
+  };
+  message: string;
+}> {
+  try {
+    const [usersSnap, campaignsSnap, recipientsSnap, transactionsSnap, paymentsSnap] = await Promise.all([
+      getDocs(collection(db, COLLECTIONS_CLIENTS)),
+      getDocs(collection(db, COLLECTION_CAMPAIGNS_NAME)),
+      getDocs(collection(db, COLLECTION_RECIPIENTS_NAME)),
+      getDocs(collection(db, COLLECTION_TRANSACTIONS_NAME)),
+      getDocs(collection(db, COLLECTION_PAYMENTS))
+    ]);
+
+    const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const campaigns = campaignsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const recipients = recipientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const transactions = transactionsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const payments = paymentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    return {
+      code: 777,
+      data: {
+        users,
+        campaigns,
+        recipients,
+        transactions,
+        payments,
+        exportDate: new Date().toISOString()
+      },
+      message: 'Data exported successfully'
+    };
+  } catch (error) {
+    console.error('Error exporting data:', error);
+    return {
+      code: 500,
+      message: 'Failed to export data'
+    };
+  }
+}
+
+// Delete admin login logs older than 7 days (keeps only current week)
+export async function deleteOldAdminLogs({
+  daysOld = 7
+}: {
+  daysOld?: number;
+} = {}): Promise<{
+  code: number;
+  message: string;
+  deletedCount?: number;
+}> {
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+
+    const logsSnapshot = await getDocs(collection(db, COLLECTION_ADMIN_LOGS_NAME));
+    let deletedCount = 0;
+
+    const deletePromises = [];
+    
+    for (const logDoc of logsSnapshot.docs) {
+      const data = logDoc.data();
+      const logDate = data.timestamp?.toDate?.() || new Date(data.createdAt);
+      
+      if (logDate < cutoffDate) {
+        deletePromises.push(deleteDoc(logDoc.ref));
+        deletedCount++;
+      }
+    }
+
+    // Delete all old logs in parallel for better performance
+    await Promise.all(deletePromises);
+
+    return {
+      code: 777,
+      message: `Successfully deleted ${deletedCount} old log(s)`,
+      deletedCount
+    };
+  } catch (error) {
+    console.error('Error deleting old admin logs:', error);
+    return {
+      code: 500,
+      message: 'Failed to delete old admin logs'
+    };
+  }
+}
+
+// Also add a similar function for client logs
+export async function deleteOldClientLogs({
+  daysOld = 7
+}: {
+  daysOld?: number;
+} = {}): Promise<{
+  code: number;
+  message: string;
+  deletedCount?: number;
+}> {
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+
+    const logsSnapshot = await getDocs(collection(db, COLLECTION_CLIENT_LOGS_NAME));
+    let deletedCount = 0;
+
+    const deletePromises = [];
+    
+    for (const logDoc of logsSnapshot.docs) {
+      const data = logDoc.data();
+      const logDate = data.timestamp?.toDate?.() || new Date(data.createdAt);
+      
+      if (logDate < cutoffDate) {
+        deletePromises.push(deleteDoc(logDoc.ref));
+        deletedCount++;
+      }
+    }
+
+    await Promise.all(deletePromises);
+
+    return {
+      code: 777,
+      message: `Successfully deleted ${deletedCount} old client log(s)`,
+      deletedCount
+    };
+  } catch (error) {
+    console.error('Error deleting old client logs:', error);
+    return {
+      code: 500,
+      message: 'Failed to delete old client logs'
     };
   }
 }

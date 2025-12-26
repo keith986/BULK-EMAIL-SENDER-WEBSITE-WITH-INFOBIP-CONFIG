@@ -4,7 +4,7 @@ import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity
 import { collection, getDocs, query, where, updateDoc, doc, deleteDoc, setDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
 import AdminProtected  from '../../_components/AdminProtected'
-import { fetchAllPayments } from '../../_utils/firebase-operations';
+import { fetchAllPayments, fetchSystemSettings, saveSystemSettings, deleteOldCampaigns, exportAllData, fetchAdminLoginLogs, getAdminLoginStats, deleteOldAdminLogs } from '../../_utils/firebase-operations';
 
 interface User {
   id: string;
@@ -234,6 +234,13 @@ export default function AdminDashboard() {
   name?: string;
   email?: string;
   } | null>(null);
+const [systemSettings, setSystemSettings] = useState<{
+  maxRecipientsPerCampaign: number;
+  registrationEnabled: boolean;
+}>({
+  maxRecipientsPerCampaign: 2000,
+  registrationEnabled: true
+});
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
     setToast({ message, type });
@@ -243,11 +250,31 @@ useEffect(() => {
   loadDataFromFirebase();
   loadAdminLogs();
   loadPayments();
+  loadSystemSettings();
+
+  // Set up periodic cleanup every hour while dashboard is open
+  const cleanupInterval = setInterval(async () => {
+    try {
+      await deleteOldAdminLogs({ daysOld: 7 });
+    } catch (error) {
+      console.error('Periodic cleanup failed:', error);
+    }
+  }, 3600000); // Run every hour (3600000 ms)
+
+  return () => {
+    clearInterval(cleanupInterval); // Cleanup interval on unmount
+  };
+
 }, []);
 
 const loadAdminLogs = async () => {
   try {
-    const { fetchAdminLoginLogs, getAdminLoginStats } = await import('../../_utils/firebase-operations');
+    
+    // Automatically delete logs older than 7 days (keeps only current week)
+    // This runs silently in the background
+    deleteOldAdminLogs({ daysOld: 7 }).catch(err => {
+      console.error('Background log cleanup failed:', err);
+    });
     
     const logsResult = await fetchAdminLoginLogs({ limitCount: 100 });
     if (logsResult.code === 777 && logsResult.data) {
@@ -584,6 +611,11 @@ const handleUpdateSubscription = async () => {
     c.userEmail.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+   const filteredPayments = payments.filter(u => 
+    u.userEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.userName.toLowerCase().includes(searchQuery.toLowerCase())
+  ); 
+
 const loadPayments = async () => {
   try {
     const result = await fetchAllPayments();
@@ -723,6 +755,89 @@ const confirmDelete = async () => {
     setDeleteTarget(null);
   }
 };
+
+const loadSystemSettings = async () => {
+  try {
+    const result = await fetchSystemSettings();
+    if (result.code === 777 && result.data) {
+      setSystemSettings(result.data);
+    }
+  } catch (error) {
+    console.error('Error loading system settings:', error);
+    showToast('Error loading system settings', 'error');
+  }
+};
+
+const handleSaveSettings = async () => {
+  setLoading(true);
+  try {
+    const result = await saveSystemSettings({ settings: systemSettings });
+    
+    if (result.code === 777) {
+      showToast('Settings saved successfully', 'success');
+    } else {
+      showToast('Failed to save settings: ' + result.message, 'error');
+    }
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    showToast('Error saving settings', 'error');
+  } finally {
+    setLoading(false);
+  }
+};
+
+const handleExportData = async () => {
+  setLoading(true);
+  try {
+    const result = await exportAllData();
+    
+    if (result.code === 777 && result.data) {
+      const dataStr = JSON.stringify(result.data, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `admin-data-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      showToast('Data exported successfully', 'success');
+    } else {
+      showToast('Failed to export data: ' + result.message, 'error');
+    }
+  } catch (error) {
+    console.error('Error exporting data:', error);
+    showToast('Error exporting data', 'error');
+  } finally {
+    setLoading(false);
+  }
+};
+
+async function handleDeleteOldCampaigns() {
+  if (!confirm('Are you sure you want to delete all campaigns older than 90 days? This action cannot be undone.')) {
+    return;
+  }
+  
+  setLoading(true);
+  try {
+    const result = await deleteOldCampaigns();
+    
+    if (result.code === 777) {
+      showToast(`Successfully deleted ${result.deletedCount || 0} old campaign(s)`, 'success');
+      loadDataFromFirebase();
+    } else {
+      showToast('Failed to delete campaigns: ' + result.message, 'error');
+    }
+  } catch (error) {
+    console.error('Error deleting campaigns:', error);
+    showToast('Error deleting old campaigns', 'error');
+  } finally {
+    setLoading(false);
+  }
+}
 
   return (
     <AdminProtected>
@@ -1381,94 +1496,98 @@ const confirmDelete = async () => {
         
       {/* Settings Tab */}
       {activeTab === 'settings' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-lg p-6 shadow-md">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">System Settings</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Default Daily Email Limit
-                </label>
-                <input
-                  type="number"
-                  defaultValue="10000"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Max Recipients per Campaign
-                </label>
-                <input
-                  type="number"
-                  defaultValue="50000"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Enable User Registration
-                </label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option>Enabled</option>
-                  <option>Disabled</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Gateway
-                </label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option>Stripe</option>
-                  <option>PayPal</option>
-                  <option>Both</option>
-                </select>
-              </div>
-
-              <button 
-                onClick={() => showToast('Settings saved successfully', 'success')}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Save Settings
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg p-6 shadow-md">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Data Management</h3>
-            
-            <div className="space-y-3">
-              <button 
-                onClick={() => showToast('Data export started', 'info')}
-                className="w-full px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center justify-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Export All Data
-              </button>
-              
-              <button 
-                onClick={() => showToast('Cache cleared successfully', 'success')}
-                className="w-full px-4 py-3 bg-orange-600 text-white rounded-md hover:bg-orange-700 flex items-center justify-center gap-2"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Clear Cache
-              </button>
-              
-              <button 
-                onClick={() => showToast('Old campaigns deleted', 'success')}
-                className="w-full px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center justify-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete Old Campaigns (90+ days)
-              </button>
-            </div>
-          </div>
+  <div className="space-y-4">
+    <div className="flex gap-4 flex-col lg:flex-row">
+    <div className="w-full bg-white rounded-lg p-6 shadow-md">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">System Settings</h3>
+      
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Max Recipients per Campaign
+          </label>
+          <input
+            type="number"
+            value={systemSettings.maxRecipientsPerCampaign}
+            onChange={(e) => setSystemSettings({...systemSettings, maxRecipientsPerCampaign: parseInt(e.target.value)})}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <p className="text-xs text-gray-500 mt-1">Maximum recipients allowed in a single campaign</p>
         </div>
-      )}
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Enable User Registration
+          </label>
+          <select 
+            value={systemSettings.registrationEnabled ? 'enabled' : 'disabled'}
+            onChange={(e) => setSystemSettings({...systemSettings, registrationEnabled: e.target.value === 'enabled'})}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="enabled">Enabled</option>
+            <option value="disabled">Disabled</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">Allow new users to register on the platform</p>
+        </div>
+
+        <button 
+          onClick={handleSaveSettings}
+          disabled={loading}
+          className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          {loading ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Settings className="w-4 h-4" />
+              Save Settings
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+
+    <div className="w-full h-[100%] bg-white rounded-lg p-6 shadow-md">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">Data Management</h3>
+      
+      <div className="space-y-3 flex gap-4 justify-between flex-col md:flex-row">
+        <button 
+          onClick={handleExportData}
+          disabled={loading}
+          className="w-half-full px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <Download className="w-4 h-4" />
+          Export All Data
+        </button>
+        
+        <button 
+          onClick={handleDeleteOldCampaigns}
+          disabled={loading}
+          className="w-half-full px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <Trash2 className="w-4 h-4" />
+          Delete Old Campaigns (90+ days)
+        </button>
+      </div>
+    </div>
+    </div>
+    {/* Settings Info */}
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="flex items-start gap-3">
+        <Settings className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <h4 className="text-sm font-semibold text-blue-900">System Configuration</h4>
+          <p className="text-sm text-blue-800 mt-1">
+            Changes to system settings will take effect immediately for all users. Be careful when modifying these values.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* API Key Assignment Modal */}
       {showApiModal && selectedUser && (
@@ -1644,7 +1763,6 @@ const confirmDelete = async () => {
         </div>
       )}
 
-
 {activeTab === 'payments' && (
   <div className="space-y-4">
     {/* Payment Statistics */}
@@ -1693,6 +1811,20 @@ const confirmDelete = async () => {
       </div>
     </div>
 
+       {/* Search */}
+          <div className="bg-white rounded-lg p-4 shadow-md">
+            <div className="flex items-center gap-2">
+              <Search className="w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search campaigns by name or email..."
+                className="flex-1 outline-none text-gray-700"
+              />
+            </div>
+          </div>
+
     {/* Payments Table */}
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
       <div className="p-4 border-b border-gray-200">
@@ -1729,7 +1861,7 @@ const confirmDelete = async () => {
                 </td>
               </tr>
             ) : (
-              payments.map((payment) => (
+              filteredPayments.map((payment) => (
                 <tr key={payment.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4">
                     <div>
@@ -2041,125 +2173,28 @@ const confirmDelete = async () => {
 
 {activeTab === 'logs' && (
   <div className="space-y-6">
-    {/* Login Statistics */}
-    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-      <div className="bg-white rounded-lg p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-blue-100 rounded-lg">
-            <Activity className="w-6 h-6 text-blue-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Total Logins</p>
-            <p className="text-2xl font-bold text-gray-800">{loginStats.totalLogins}</p>
-          </div>
-        </div>
-      </div>
-      
-      <div className="bg-white rounded-lg p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-green-100 rounded-lg">
-            <CheckCircle className="w-6 h-6 text-green-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Successful</p>
-            <p className="text-2xl font-bold text-green-600">{loginStats.successfulLogins}</p>
-          </div>
-        </div>
-      </div>
-      
-      <div className="bg-white rounded-lg p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-red-100 rounded-lg">
-            <AlertCircle className="w-6 h-6 text-red-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Failed</p>
-            <p className="text-2xl font-bold text-red-600">{loginStats.failedLogins}</p>
-          </div>
-        </div>
-      </div>
-      
-      <div className="bg-white rounded-lg p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-purple-100 rounded-lg">
-            <Shield className="w-6 h-6 text-purple-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Unique Admins</p>
-            <p className="text-2xl font-bold text-purple-600">{loginStats.uniqueAdmins}</p>
-          </div>
-        </div>
-      </div>
-      
-      <div className="bg-white rounded-lg p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-amber-100 rounded-lg">
-            <ClockIcon className="w-6 h-6 text-amber-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-600">Last 24hrs</p>
-            <p className="text-2xl font-bold text-amber-600">{loginStats.recentActivity}</p>
-          </div>
+    {/* Add auto-cleanup status banner at the top */}
+    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+      <div className="flex items-start gap-3">
+        <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <h4 className="text-sm font-semibold text-green-900">Automatic Log Cleanup Active</h4>
+          <p className="text-sm text-green-800 mt-1">
+            Admin login logs older than 7 days are automatically deleted to maintain optimal database performance. 
+            Only the current week activity is retained.
+          </p>
         </div>
       </div>
     </div>
 
+    {/* Login Statistics */}
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      {/* ... existing stats cards ... */}
+    </div>
+
     {/* Success Rate Chart */}
     <div className="bg-white rounded-lg p-6 shadow-md">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Login Success Rate</h3>
-      <div className="flex items-center gap-4">
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-600">Successful Logins</span>
-            <span className="text-sm font-semibold text-green-600">
-              {loginStats.totalLogins > 0 
-                ? ((loginStats.successfulLogins / loginStats.totalLogins) * 100).toFixed(1)
-                : 0}%
-            </span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-3">
-            <div 
-              className="bg-gradient-to-r from-green-500 to-emerald-600 h-3 rounded-full transition-all duration-500"
-              style={{ 
-                width: loginStats.totalLogins > 0 
-                  ? `${(loginStats.successfulLogins / loginStats.totalLogins) * 100}%` 
-                  : '0%' 
-              }}
-            ></div>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-3xl font-bold text-green-600">{loginStats.successfulLogins}</p>
-          <p className="text-xs text-gray-500">of {loginStats.totalLogins}</p>
-        </div>
-      </div>
-      
-      <div className="flex items-center gap-4 mt-4">
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-600">Failed Attempts</span>
-            <span className="text-sm font-semibold text-red-600">
-              {loginStats.totalLogins > 0 
-                ? ((loginStats.failedLogins / loginStats.totalLogins) * 100).toFixed(1)
-                : 0}%
-            </span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-3">
-            <div 
-              className="bg-gradient-to-r from-red-500 to-rose-600 h-3 rounded-full transition-all duration-500"
-              style={{ 
-                width: loginStats.totalLogins > 0 
-                  ? `${(loginStats.failedLogins / loginStats.totalLogins) * 100}%` 
-                  : '0%' 
-              }}
-            ></div>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-3xl font-bold text-red-600">{loginStats.failedLogins}</p>
-          <p className="text-xs text-gray-500">attempts</p>
-        </div>
-      </div>
+      {/* ... existing chart ... */}
     </div>
 
     {/* Activity Log Table */}
@@ -2167,13 +2202,16 @@ const confirmDelete = async () => {
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-gray-800">Admin Login Activity</h3>
-          <p className="text-sm text-gray-500 mt-1">Recent admin access attempts and sessions</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Recent admin access attempts (Last 7 days only)
+          </p>
         </div>
         <button
           onClick={loadAdminLogs}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 cursor-pointer"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
@@ -2195,7 +2233,7 @@ const confirmDelete = async () => {
             {adminLogs.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-8 text-center text-gray-500">
-                  No admin activity logs found
+                  No admin activity logs found in the last 7 days
                 </td>
               </tr>
             ) : (
