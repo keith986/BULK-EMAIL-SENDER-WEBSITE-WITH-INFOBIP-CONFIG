@@ -1095,7 +1095,6 @@ async function handleDeleteOldCampaigns() {
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Coins Balance</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Emails Sent</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">API Key</th>
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Date</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
             </tr>
@@ -1501,7 +1500,7 @@ async function handleDeleteOldCampaigns() {
           {plan.bonus && (
             <div className="mb-3">
               <span className="bg-gradient-to-r from-green-500 to-emerald-600 text-white px-3 py-1 rounded-full text-xs font-bold">
-                POPULAR - +{plan.bonus} BONUS
+                {plan.bonus} BONUS
               </span>
             </div>
           )}
@@ -1542,106 +1541,6 @@ async function handleDeleteOldCampaigns() {
           </div>
         </div>
       ))}
-    </div>
-
-    {/* Revenue Overview */}
-    <div className="bg-white rounded-lg p-6 shadow-md">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Revenue & Statistics</h3>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200">
-          <p className="text-sm text-gray-600">Total Revenue (KES)</p>
-          <p className="text-2xl font-bold text-blue-600 mt-2">
-            Kes. {stats.totalRevenue.toLocaleString()}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Monthly recurring</p>
-        </div>
-        
-        <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
-          <p className="text-sm text-gray-600">Active Packages</p>
-          <p className="text-2xl font-bold text-green-600 mt-2">{stats.activeSubscriptions}</p>
-          <p className="text-xs text-gray-500 mt-1">Paid users</p>
-        </div>
-        
-        <div className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200">
-          <p className="text-sm text-gray-600">Avg Revenue/User</p>
-          <p className="text-2xl font-bold text-purple-600 mt-2">
-            Kes. {stats.activeSubscriptions > 0 ? (stats.totalRevenue / stats.activeSubscriptions).toFixed(0) : '0'}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Per user average</p>
-        </div>
-        
-        <div className="p-4 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200">
-          <p className="text-sm text-gray-600">Total Coins Sold</p>
-          <p className="text-2xl font-bold text-amber-600 mt-2">
-            {users.reduce((sum, u) => sum + (u.coins || 0), 0).toLocaleString()}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">All time</p>
-        </div>
-      </div>
-    </div>
-
-    {/* Package Distribution */}
-    <div className="bg-white rounded-lg p-6 shadow-md">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Package Distribution</h3>
-      <div className="space-y-3">
-        {pricingPlans.map((plan) => {
-          const userCount = users.filter(u => u.subscriptionStatus === plan.id).length;
-          const percentage = stats.totalUsers > 0 ? (userCount / stats.totalUsers) * 100 : 0;
-          
-          return (
-            <div key={plan.id} className="flex items-center gap-4">
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-700">{plan.name}</span>
-                  <span className="text-sm text-gray-600">{userCount} users ({percentage.toFixed(1)}%)</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full ${
-                      plan.id === '2000c' ? 'bg-blue-500' :
-                      plan.id === '6000c' ? 'bg-amber-500' :
-                      plan.id === '10000c' ? 'bg-purple-500' :
-                      'bg-gray-500'
-                    }`}
-                    style={{ width: `${percentage}%` }}
-                  ></div>
-                </div>
-              </div>
-              <div className="text-right min-w-[100px]">
-                <p className="text-sm font-semibold text-gray-800">
-                  {typeof plan.price === 'number' ? `Kes. ${(plan.price * userCount).toLocaleString()}` : '-'}
-                </p>
-                <p className="text-xs text-gray-500">Revenue</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-
-    {/* Coin Usage Analytics */}
-    <div className="bg-white rounded-lg p-6 shadow-md">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Coin Usage Analytics</h3>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-4 bg-blue-50 rounded-lg">
-          <p className="text-sm text-gray-600">Total Coins in Circulation</p>
-          <p className="text-2xl font-bold text-blue-600 mt-2">
-            {users.reduce((sum, u) => sum + (u.coins || 0), 0).toLocaleString()}
-          </p>
-        </div>
-        <div className="p-4 bg-green-50 rounded-lg">
-          <p className="text-sm text-gray-600">Coins Used (Emails Sent)</p>
-          <p className="text-2xl font-bold text-green-600 mt-2">
-            {stats.totalEmailsSent.toLocaleString()}
-          </p>
-        </div>
-        <div className="p-4 bg-purple-50 rounded-lg">
-          <p className="text-sm text-gray-600">Average Coins per User</p>
-          <p className="text-2xl font-bold text-purple-600 mt-2">
-            {stats.totalUsers > 0 ? Math.round(users.reduce((sum, u) => sum + (u.coins || 0), 0) / stats.totalUsers).toLocaleString() : '0'}
-          </p>
-        </div>
-      </div>
     </div>
          </div>
         )}
