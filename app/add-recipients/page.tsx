@@ -11,6 +11,7 @@ import { db } from '../_lib/firebase';
 interface Recipient {
   name: string;
   email: string;
+  username?: string;
 }
 
 interface UserData {
@@ -72,17 +73,20 @@ export default function AddRecipients() {
   }, [user?.uid]);
 
   // Parse recipients from text
+  // Format: name, email, username OR name, email OR email
   const parseRecipients = (text: string): Recipient[] => {
     return text
       .split('\n')
       .map((line: string) => line.trim())
       .filter((line: string) => line && line.includes('@'))
       .map((line: string) => {
-        const parts = line.split(',');
-        if (parts.length >= 2) {
-          return { name: parts[0].trim(), email: parts[1].trim() };
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length >= 3) {
+          return { name: parts[0], email: parts[1], username: parts[2] };
+        } else if (parts.length === 2) {
+          return { name: parts[0], email: parts[1], username: '' };
         }
-        return { name: '', email: parts[0].trim() };
+        return { name: '', email: parts[0], username: '' };
       });
   };
 
@@ -250,7 +254,7 @@ export default function AddRecipients() {
                 
                 {/* Format Instructions */}
                 <p className="text-xs text-gray-600 mb-3">
-                  Format: email@example.com (one per line)
+                  Format: <code className="bg-gray-100 px-2 py-1 rounded">email@example.com</code> OR <code className="bg-gray-100 px-2 py-1 rounded">Name, email@example.com</code> OR <code className="bg-gray-100 px-2 py-1 rounded">Name, email@example.com, username</code> (one per line)
                 </p>
                 
                 {/* Manual Entry Section */}

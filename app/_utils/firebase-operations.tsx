@@ -182,7 +182,7 @@ export const uploadRecipientsToFirebase = async ({
   rawText
 }: {
   userId: string, 
-  recipients: Array<{name: string, email: string}>, 
+  recipients: Array<{name: string, email: string, username?: string}>, 
   totalCount: number, 
   rawText: string
 }): Promise<{code: number, message: string, added?: number}> => {
@@ -195,17 +195,17 @@ export const uploadRecipientsToFirebase = async ({
     if (!querySnapshot.empty) {
       // User already exists, merge with existing recipients and avoid duplicates
       const existingDoc = querySnapshot.docs[0];
-      const data = existingDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
-      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
+      const data = existingDoc.data() as { recipients?: Array<{ name?: string; email?: string; username?: string }>; rawText?: string; totalCount?: number };
+      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string; username?: string }> : [];
 
       // Normalize incoming recipients and remove any without email
-      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ name: r.name ?? '', email: String(r.email).trim() })) : [];
+      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ name: r.name ?? '', email: String(r.email).trim(), username: r.username ?? '' })) : [];
 
       // Build map of lowercased existing emails
-      const existingMap = new Map<string, { name?: string; email: string }>();
+      const existingMap = new Map<string, { name?: string; email: string; username?: string }>();
       for (const r of existingList) {
         if (!r?.email) continue;
-        existingMap.set(String(r.email).toLowerCase(), { name: r.name, email: String(r.email) });
+        existingMap.set(String(r.email).toLowerCase(), { name: r.name, email: String(r.email), username: r.username });
       }
 
       // Count new additions and merge
@@ -213,7 +213,7 @@ export const uploadRecipientsToFirebase = async ({
       for (const inc of incoming) {
         const key = inc.email.toLowerCase();
         if (!existingMap.has(key)) {
-          existingMap.set(key, { name: inc.name || '', email: inc.email });
+          existingMap.set(key, { name: inc.name || '', email: inc.email, username: inc.username || '' });
           addedCount++;
         }
       }

@@ -3,12 +3,54 @@ import Protected from '../_components/Protected';
 import { useState, useEffect } from 'react';
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Eye, PenLine, Send, Users, FileText, Plus, Trash2, Image as ImageIcon, X } from 'lucide-react';
 import { fetchRecipientsFromFirebase, fetchGroupsFromFirebase } from '../_utils/firebase-operations';
+import { getAvailableMergeTags, replaceMergeTags, createMergeData } from '../_utils/merge-tags';
 import {toast, ToastContainer} from 'react-toastify';
 import { useUser } from '../_context/UserProvider';
 
+// Preview email styling (Gmail + Outlook variants)
+const emailPreviewStyles = `
+  .email-body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1;
+    color: #333;
+    word-break: break-word;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  /* Gmail specific tweaks */
+  .gmail-preview .email-body {
+    color: #202124;
+  }
+  .gmail-preview .email-body a { color: #1a73e8; }
+
+  /* Outlook specific tweaks */
+  .outlook-preview {
+    background: #f3f6fb;
+  }
+  .outlook-preview .email-body {
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    color: #222;
+  }
+  .outlook-preview .email-body a { color: #0078d4; }
+
+  .email-body img {
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+  }
+
+  .email-body a { text-decoration: none; }
+  .email-body a:hover { text-decoration: underline; }
+
+  .email-body br { display: block; content: ""; margin: 4px 0; }
+`;
+
 interface Recipient {
-  name: string;
+  name?: string;
   email: string;
+  username?: string;
   groups?: string[];
 }
 
@@ -143,6 +185,8 @@ export default function Compose () {
   const [italic, setItalic] = useState(false);
   const [underline, setUnderline] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'gmail' | 'outlook'>('gmail');
+  const [previewRecipientIndex, setPreviewRecipientIndex] = useState<number>(0);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [recipientsLoading, setRecipientsLoading] = useState<boolean>(false);
@@ -221,6 +265,18 @@ export default function Compose () {
       }
     }
   }, [user?.uid]);
+
+  // Keep previewRecipientIndex within bounds when recipients change
+  useEffect(() => {
+    const listLen = (selectedRecipients.length > 0 ? selectedRecipients.length : recipients.length) || 0;
+    if (listLen === 0) {
+      setPreviewRecipientIndex(0);
+      return;
+    }
+    if (previewRecipientIndex >= listLen) {
+      setPreviewRecipientIndex(0);
+    }
+  }, [selectedRecipients.length, recipients.length, previewRecipientIndex]);
 
   // Filter groups based on search query
   useEffect(() => {
@@ -598,23 +654,133 @@ export default function Compose () {
   }, [text, fontSize, textColor, bgColor, alignment, padding, borderWidth, borderColor, borderRadius, fontFamily, bold, italic, underline, imageUrl, uploadedImage, imagePosition, imageWidth]);
 
   if (showPreview) {
+    const previewList = selectedRecipients.length > 0 ? selectedRecipients : recipients;
+    const previewRecipient = previewList.length > 0 ? previewList[Math.min(previewRecipientIndex, previewList.length - 1)] : null;
+
+    // Create merge data for preview
+    const previewMergeData = previewRecipient
+      ? createMergeData(previewRecipient)
+      : { name: '[Full Name]', username: '[Username]', email: 'preview@example.com' };
+
+    // Apply merge tags to subject and content for preview
+    const previewSubject = replaceMergeTags(subject, previewMergeData);
+    const previewHtml = replaceMergeTags(htmlContent, previewMergeData);
+
+    // Create a compact version of the HTML for in-app preview so it fits the preview container
+    const compactPreviewHtml = (() => {
+      try {
+        let temp = previewHtml;
+        // Remove the 40px 0 padding on the outer centering td to eliminate top/bottom white space
+        temp = temp.replace(/style="padding: 40px 0;"/g, 'style="padding: 0;"');
+        // Make content padding small for preview (3px instead of user's padding)
+        temp = temp.replace(new RegExp(`style="padding: ${padding}px;"`,'g'), 'style="padding: 3px;"');
+        return temp;
+      } catch (err) {
+        return previewHtml;
+      }
+    })();
+
     return (
-      <div className="rounded-lg overflow-hidden mt-40 m-4 md:mt-50 md:ml-70 md:m-10 sm:mt-50 sm:ml-70 bg-gradient-to-br from-red-200 to-slate-500 p-4">
-        <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium text-gray-600">Email Preview</p>
-            <button
-              onClick={() => setShowPreview(!showPreview)}
-              className="flex items-center gap-2 px-3 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-            >
-              <PenLine className="w-4 h-4" />
-              Edit
-            </button>
+      <div className={`rounded-lg overflow-hidden mt-40 m-4 md:mt-25 md:ml-70 md:m-10 sm:mt-50 sm:ml-70 p-2 ${previewMode === 'outlook' ? 'bg-gradient-to-br from-blue-100 to-blue-50' : 'bg-gradient-to-br from-gray-100 to-gray-50'}`}>
+        <style>{emailPreviewStyles}</style>
+        {/* Preview Container */}
+        <div className={`bg-white rounded-lg shadow-lg overflow-hidden flex flex-col max-h-[80vh] ${previewMode === 'outlook' ? 'outlook-preview' : 'gmail-preview'}`}>
+          {/* Preview Header with Mode Toggle */}
+          <div className="bg-gray-100 px-4 py-3 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <svg className={`w-5 h-5 ${previewMode === 'outlook' ? 'text-blue-600' : 'text-red-600'}`} fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                </svg>
+                <span className="text-sm font-semibold text-gray-700">{previewMode === 'outlook' ? 'Outlook Preview' : 'Gmail Preview'}</span>
+
+                {previewList.length > 0 && (
+                  <select
+                    value={previewRecipientIndex}
+                    onChange={(e) => setPreviewRecipientIndex(Number(e.target.value))}
+                    className="ml-2 px-2 py-1 border border-gray-300 rounded text-sm bg-white"
+                  >
+                    {previewList.map((r, i) => (
+                      <option key={(r.email || '') + i} value={i}>
+                        {r.name || r.username || r.email}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-md bg-gray-50 p-1">
+                  <button
+                    onClick={() => setPreviewMode('gmail')}
+                    className={`px-3 py-1 rounded text-sm ${previewMode === 'gmail' ? 'bg-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    Gmail
+                  </button>
+                  <button
+                    onClick={() => setPreviewMode('outlook')}
+                    className={`px-3 py-1 rounded text-sm ${previewMode === 'outlook' ? 'bg-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    Outlook
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowPreview(false)}
+                  className="flex items-center gap-2 px-3 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                >
+                  <PenLine className="w-4 h-4" />
+                  Edit
+                </button>
+              </div>
+            </div>
+
+            {/* Recipient Info */}
+            <div className="bg-white p-3 rounded border border-gray-200 text-sm">
+              <div className="font-semibold text-gray-800 mb-2">Preview for:</div>
+              <div className="text-gray-700">
+                <div><strong>From:</strong> noreply@bulky.com</div>
+                <div><strong>To:</strong> {previewRecipient?.email || 'preview@example.com'} {previewRecipient?.name ? `(${previewRecipient.name})` : ''}</div>
+                <div className={`mt-2 p-2 ${previewMode === 'outlook' ? 'bg-blue-50 border-l-4 border-blue-500 text-xs text-blue-800' : 'bg-blue-50 border-l-4 border-blue-500 text-xs text-blue-800'}`}>
+                  ℹ️ This shows how the email will look for <strong>{previewRecipient?.name || previewRecipient?.username || 'this recipient'}</strong> with personalization applied
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Email Content Container */}
+          <div className="flex-1 overflow-y-auto bg-gray-50 p-3">
+            {/* Email Subject Line */}
+            <div className="bg-white p-3 mb-2 border-b border-gray-200">
+              <h3 className={`text-lg font-semibold break-words ${previewMode === 'outlook' ? 'text-blue-800' : 'text-gray-800'}`}>{previewSubject || '(No subject)'}</h3>
+              <div className="text-xs text-gray-500 mt-2">
+                From: noreply@bulky.com  
+                <span className="mx-2">|</span>  
+                {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+
+            {/* Email Body */}
+            <div className="bg-white rounded p-3">
+              <div className="email-body" style={{ fontFamily: previewMode === 'outlook' ? "'Segoe UI', Tahoma, sans-serif" : undefined }} dangerouslySetInnerHTML={{ __html: compactPreviewHtml }} />
+            </div>
+
+            {/* Merge Tags Used Indicator */}
+            {(previewSubject.includes('{{') || previewHtml.includes('{{')) ? (
+              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                ⚠️ <strong>Note:</strong> Email contains unparsed merge tags. Make sure all recipients have the required fields.
+              </div>
+            ) : previewRecipient ? (
+              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                ✓ <strong>Preview Ready:</strong> All merge tags have been applied using data from {previewRecipient.name || previewRecipient.username || 'recipient'}.
+              </div>
+            ) : (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                ℹ️ <strong>Sample Preview:</strong> Showing example merge tag replacements. Add recipients to see actual personalization.
+              </div>
+            )}
           </div>
         </div>
-        <div className="p-4 max-h-96 overflow-y-auto bg-gray-50 rounded-b-lg">
-            <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
-          </div>
       </div>
     );
   }
@@ -876,6 +1042,32 @@ export default function Compose () {
                     className="w-full px-3 sm:px-4 py-2 border border-white rounded-lg focus:ring-2 focus:ring-white focus:border-transparent outline-none text-sm sm:text-base"
                     placeholder="Enter your email content..."
                   />
+
+                  {/* Merge Tags Helper */}
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-xs sm:text-sm font-medium text-blue-900 mb-2">📝 Personalization Tags:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {getAvailableMergeTags().filter(tag => ['{{name}}', '{{email}}', '{{username}}'].includes(tag.tag)).map((tag) => (
+                        <button
+                          key={tag.tag}
+                          onClick={() => {
+                            const textarea = document.querySelector('textarea');
+                            if (textarea) {
+                              const start = textarea.selectionStart;
+                              const end = textarea.selectionEnd;
+                              const newText = text.substring(0, start) + tag.tag + text.substring(end);
+                              setText(newText);
+                            }
+                          }}
+                          title={tag.description}
+                          className="px-2 py-1 bg-white border border-blue-300 rounded text-xs hover:bg-blue-100 transition-colors"
+                        >
+                          {tag.tag}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-blue-700 mt-2">💡 Tip: choose name if exists, otherwise username</p>
+                  </div>
                 </div>
 
                 {/* Formatting Toolbar */}
@@ -1058,7 +1250,26 @@ export default function Compose () {
                       try {
                         setSendLoading(true);
                         const toSend = selectedRecipients.length > 0 ? selectedRecipients : recipients;
-                        const payload = { userId: user?.uid, subject: subject || '', html: htmlContent, recipients: toSend };
+                        
+                        // Create personalized emails with merge tags
+                        const personalizedRecipients = toSend.map(recipient => {
+                          const mergeData = createMergeData(recipient);
+                          const personalizedHtml = replaceMergeTags(htmlContent, mergeData);
+                          const personalizedSubject = replaceMergeTags(subject, mergeData);
+                          
+                          return {
+                            ...recipient,
+                            personalizedHtml,
+                            personalizedSubject
+                          };
+                        });
+                        
+                        const payload = { 
+                          userId: user?.uid, 
+                          subject: subject || '', 
+                          html: htmlContent, 
+                          recipients: personalizedRecipients 
+                        };
                         const res = await fetch('/api/send', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
@@ -1068,7 +1279,11 @@ export default function Compose () {
                         if (contentType.includes('application/json')) {
                           const data = await res.json();
                           if (data.code === 777) {
-                            toast.success('Send completed');
+                            toast.success('✓ Send completed');
+                            // Reset form
+                            setSubject('');
+                            setText('');
+                            setSelectedRecipients([]);
                           } else {
                             toast.error('Error: ' + (data.message || JSON.stringify(data)));
                           }

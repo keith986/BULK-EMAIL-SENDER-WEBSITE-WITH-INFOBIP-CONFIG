@@ -8,6 +8,7 @@ import { useUser } from '../_context/UserProvider';
 interface Recipient { 
   name?: string; 
   email: string;
+  username?: string;
   groups?: string[];
 }
 
@@ -546,6 +547,8 @@ export default function Recipients() {
                   <input type="checkbox" aria-label="Select all on page" onChange={toggleSelectAllOnPage} checked={records.length > 0 && records.every(r => selectedEmails.includes(r.email))} />
                 </th>
                 <th scope="col" className="px-6 py-3">NO.</th>
+                <th scope="col" className="px-6 py-3">Name</th>
+                <th scope="col" className="px-6 py-3">Username</th>
                 <th scope="col" className="px-6 py-3">Email Address</th>
                 <th scope="col" className="px-6 py-3">Groups</th>
                 <th scope="col" className="px-6 py-3">Action</th>
@@ -554,7 +557,7 @@ export default function Recipients() {
             <tbody>
               {!isLoading ? 
                 records.map((recipient: Recipient, index: number) => (
-                  <tr key={index} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 border-gray-200">
+                  <tr key={recipient.email} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 border-gray-200">
                     <td className="px-6 py-4">
                       <input
                         type="checkbox"
@@ -567,6 +570,8 @@ export default function Recipients() {
                       />
                     </td>
                     <td className="px-6 py-4">{firstIndex + index + 1}</td>
+                    <td className="px-6 py-4">{recipient.name || '-'}</td>
+                    <td className="px-6 py-4">{recipient.username || '-'}</td>
                     <td className="px-6 py-4">{recipient.email}</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -645,7 +650,7 @@ export default function Recipients() {
                 ))
                 :
                 <tr>
-                  <td colSpan={5} className="text-center px-6 py-4 text-gray-100 text-2xl">Loading...</td>
+                  <td colSpan={6} className="text-center px-6 py-4 text-gray-100 text-2xl">Loading...</td>
                 </tr>
               }
             </tbody>
