@@ -3,7 +3,7 @@ import { db } from '../../../_lib/firebase';
 import { doc, updateDoc, query, collection, where, getDocs } from 'firebase/firestore';
 
 // Disable timeout for this endpoint
-export const maxDuration = 60;
+export const maxDuration = 120; // 120 seconds to handle processing safely
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
@@ -103,7 +103,7 @@ async function processCallbackAsync(body: any) {
     
     if (ResultCode === 0) {
       console.log('✅ Payment SUCCESSFUL!');
-      
+
       // Extract payment details from callback metadata
       const metadata = CallbackMetadata?.Item || [];
       const paymentDetails: any = {};
@@ -119,9 +119,8 @@ async function processCallbackAsync(body: any) {
         transactionDate: paymentDetails.TransactionDate,
       });
 
-      // Update payment to PENDING (awaiting admin approval)
+      // Persist transaction details to payment doc (don't mark completed yet)
       await updateDoc(doc(db, 'payments', paymentDoc.id), {
-        paymentStatus: 'pending',  // Admin must approve
         transactionRef: paymentDetails.MpesaReceiptNumber || '',
         paymentDetails: {
           mpesaReceiptNumber: paymentDetails.MpesaReceiptNumber,
@@ -135,8 +134,66 @@ async function processCallbackAsync(body: any) {
         updatedAt: new Date().toISOString(),
       });
 
-      console.log('✅ Payment marked as PENDING - awaiting admin approval');
-      console.log('Admin can now approve in the Payments tab');
+      console.log('✅ Payment callback details saved; checking auto-approve setting');
+
+      // Check system setting to determine if auto-approve is enabled
+      try {
+        const { fetchSystemSettings } = await import('../../../_utils/firebase-operations');
+        const settingsResult = await fetchSystemSettings();
+        const autoApprove = settingsResult.data?.autoApprovePayments === true; // only auto-approve if explicitly true
+
+        console.log('🔧 System Settings Check:', {
+          settingsData: settingsResult.data,
+          autoApprovePayments: settingsResult.data?.autoApprovePayments,
+          autoApprovePaymentsType: typeof settingsResult.data?.autoApprovePayments,
+          willAutoApprove: autoApprove
+        });
+
+        if (autoApprove) {
+          // Auto-approve and credit coins using existing helper (idempotent check inside)
+          try {
+            const { approvePayment } = await import('../../../_utils/firebase-operations');
+
+            const approveResult = await approvePayment({
+              paymentId: paymentDoc.id,
+              userId: paymentData.userId,
+              coins: paymentData.coins || 0,
+              packageId: paymentData.packageId || '',
+              packageInfo: paymentData.packageInfo || ''
+            });
+
+            if (approveResult?.code === 777) {
+              console.log('✅ Auto-approve succeeded:', approveResult.message);
+            } else {
+              console.warn('⚠️ Auto-approve failed or deferred:', approveResult?.message || approveResult);
+            }
+          } catch (err) {
+            console.error('❌ Error while auto-approving payment:', err);
+          }
+        } else {
+          // Auto-approve disabled: mark as pending for manual admin approval
+          await updateDoc(doc(db, 'payments', paymentDoc.id), {
+            paymentStatus: 'pending',
+            updatedAt: new Date().toISOString(),
+          });
+          console.log('⏳ Auto-approve disabled: payment marked as pending for manual approval');
+        }
+      } catch (err) {
+        console.error('❌ Error checking auto-approve setting:', err);
+        // Default to auto-approve on error
+        try {
+          const { approvePayment } = await import('../../../_utils/firebase-operations');
+          await approvePayment({
+            paymentId: paymentDoc.id,
+            userId: paymentData.userId,
+            coins: paymentData.coins || 0,
+            packageId: paymentData.packageId || '',
+            packageInfo: paymentData.packageInfo || ''
+          });
+        } catch (e) {
+          console.error('Error in default auto-approve:', e);
+        }
+      }
       
     } else if (ResultCode === 1032) {
       console.log('⚠️ Payment CANCELLED by user');

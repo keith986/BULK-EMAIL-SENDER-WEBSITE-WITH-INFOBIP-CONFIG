@@ -23,14 +23,15 @@ const SYSTEM_SETTINGS_DOC_ID = "config";
 export interface SystemSettings {
   maxRecipientsPerCampaign: number;
   registrationEnabled: boolean;
+  autoApprovePayments?: boolean;
 }
 
 // Define contact limits for each package
 export const PACKAGE_LIMITS = {
   'free': 1,
   '2000c': 2000,
-  '6000c': 2000,
-  '10000c': 2000,
+  '6000c': 6000,
+  '10000c': 10000,
   'customc': Infinity
 } as const;
 
@@ -45,7 +46,7 @@ interface AdminLoginLog {
   ipAddress?: string;
   userAgent?: string;
   location?: string;
-  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified' | 'otp_resent';
   failureReason?: string;
   timestamp: Date;
   sessionDuration?: number;
@@ -56,7 +57,7 @@ interface ClientLoginLog {
   ipAddress?: string;
   userAgent?: string;
   location?: string;
-  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified' | 'otp_resent';
   failureReason?: string;
   timestamp: Date;
   sessionDuration?: number;
@@ -1883,8 +1884,34 @@ export async function updatePaymentStatus({
   paymentDetails?: Record<string, unknown>;
 }): Promise<{ code: number; message: string }> {
   try {
+    // Respect system setting: if auto-approve is disabled, treat completed as pending
+    let finalStatus = status;
+    try {
+      const { fetchSystemSettings } = await import('./firebase-operations');
+      const settingsResult = await fetchSystemSettings();
+      const autoApprove = settingsResult.data?.autoApprovePayments === true;
+
+      if (status === 'completed' && !autoApprove) {
+        // When admin requires manual approval, do not mark as completed automatically
+        finalStatus = 'pending';
+        paymentDetails = {
+          ...(paymentDetails || {}),
+          awaitingAdminApproval: true
+        };
+        console.log('updatePaymentStatus: auto-approve disabled — storing as pending and flagging awaitingAdminApproval');
+      }
+
+      // If a transaction failed and admin requires manual approval, skip saving failed transactions
+      if (status === 'failed' && !autoApprove) {
+        console.log('updatePaymentStatus: auto-approve disabled — skipping saving failed payment for', paymentId);
+        return { code: 777, message: 'Skipped saving failed payment due to manual approval setting' };
+      }
+    } catch (err) {
+      console.warn('updatePaymentStatus: could not load system settings, proceeding with provided status', err);
+    }
+
     const updates: Record<string, unknown> = {
-      paymentStatus: status,
+      paymentStatus: finalStatus,
       updatedAt: serverTimestamp()
     };
 
@@ -2009,10 +2036,12 @@ export async function approvePayment({
   packageInfo: string;
 }): Promise<{ code: number; message: string }> {
   try {
+    console.log('approvePayment called with:', { paymentId, userId, coins, packageId, packageInfo });
     // Get payment details to ensure it exists and is pending
     const paymentDoc = await getDoc(doc(db, COLLECTION_PAYMENTS, paymentId));
     
     if (!paymentDoc.exists()) {
+      console.warn('approvePayment: payment not found for id', paymentId);
       return {
         code: 404,
         message: 'Payment not found'
@@ -2020,8 +2049,10 @@ export async function approvePayment({
     }
 
     const paymentData = paymentDoc.data();
+    console.log('approvePayment: paymentData.paymentStatus =', paymentData.paymentStatus);
     
     if (paymentData.paymentStatus === 'completed') {
+      console.warn('approvePayment: payment already completed, cannot approve again', paymentId);
       return {
         code: 400,
         message: 'Payment already approved and coins credited'
@@ -2058,11 +2089,22 @@ export async function approvePayment({
     const expiryDate = new Date();
     expiryDate.setMonth(expiryDate.getMonth() + 1);
 
+    // Fetch current client data to handle top-ups correctly
+    const clientDoc = await getDoc(doc(db, 'clients', userId));
+    const clientData = clientDoc.exists() ? clientDoc.data() as any : {};
+
+    const currentTotal = clientData?.totalEmailsAllowed || 0;
+    const currentRemaining = clientData?.emailsRemaining || 0;
+
+    // For top-ups: add coins to existing email allowances instead of overwriting
+    const newTotal = currentTotal + coins;
+    const newRemaining = currentRemaining + coins;
+
     await updateDoc(doc(db, 'clients', userId), {
       subscriptionStatus: packageId,
       subscriptionExpiry: expiryDate.toISOString().split('T')[0],
-      totalEmailsAllowed: coins,
-      emailsRemaining: coins,
+      totalEmailsAllowed: newTotal,
+      emailsRemaining: newRemaining,
       updatedAt: serverTimestamp(),
     });
 
@@ -2108,6 +2150,66 @@ export async function rejectPayment({
   rejectionReason?: string;
 }): Promise<{ code: number; message: string }> {
   try {
+    // Fetch payment to determine if coins were already credited
+    const paymentDoc = await getDoc(doc(db, COLLECTION_PAYMENTS, paymentId));
+    if (!paymentDoc.exists()) {
+      return { code: 404, message: 'Payment not found' };
+    }
+
+    const paymentData: any = paymentDoc.data();
+
+    // If payment was completed (coins credited), reverse the coins
+    if (paymentData.paymentStatus === 'completed') {
+      try {
+        const userId = paymentData.userId;
+        const coinsToRevert = paymentData.coins || 0;
+
+        if (userId && coinsToRevert > 0) {
+          // Update coins collection: subtract coins (not below 0)
+          const coinsQuery = query(collection(db, COLLECTION_COINS_NAME), where('userId', '==', userId));
+          const coinsSnapshot = await getDocs(coinsQuery);
+          if (!coinsSnapshot.empty) {
+            const coinsDoc = coinsSnapshot.docs[0];
+            const current = (coinsDoc.data().coins || 0) as number;
+            const newBalance = Math.max(0, current - coinsToRevert);
+            await updateDoc(doc(db, COLLECTION_COINS_NAME, coinsDoc.id), {
+              coins: newBalance,
+              updatedAt: serverTimestamp()
+            });
+          }
+
+          // Update clients document: subtract from totals
+          const clientRef = doc(db, 'clients', userId);
+          const clientDoc = await getDoc(clientRef);
+          if (clientDoc.exists()) {
+            const c = clientDoc.data() as any;
+            const totalEmailsAllowed = Math.max(0, (c.totalEmailsAllowed || 0) - coinsToRevert);
+            const emailsRemaining = Math.max(0, (c.emailsRemaining || 0) - coinsToRevert);
+            await updateDoc(clientRef, {
+              totalEmailsAllowed,
+              emailsRemaining,
+              updatedAt: serverTimestamp()
+            });
+          }
+
+          // Create a reversal transaction record
+          await addDoc(collection(db, COLLECTION_TRANSACTIONS_NAME), {
+            userId,
+            amount: -coinsToRevert,
+            type: 'reversal',
+            description: `Reversal for rejected payment ${paymentId}`,
+            date: serverTimestamp(),
+            status: 'completed',
+            packageInfo: paymentData.packageInfo || '',
+            transactionRef: paymentData.transactionRef || paymentData.paymentDetails?.mpesaReceiptNumber || null
+          });
+        }
+      } catch (err) {
+        console.error('Error reversing coins during rejection:', err);
+      }
+    }
+
+    // Finally mark payment rejected (include reason)
     await updateDoc(doc(db, COLLECTION_PAYMENTS, paymentId), {
       paymentStatus: 'rejected',
       rejectionReason: rejectionReason || 'Rejected by admin',
@@ -2142,14 +2244,16 @@ export async function fetchSystemSettings(): Promise<{
         code: 777,
         data: {
           maxRecipientsPerCampaign: data.maxRecipientsPerCampaign || 2000,
-          registrationEnabled: data.registrationEnabled !== false
+          registrationEnabled: data.registrationEnabled !== false,
+          autoApprovePayments: data.autoApprovePayments === true ? true : false
         },
         message: 'Settings fetched successfully'
       };
     } else {
       const defaultSettings: SystemSettings = {
         maxRecipientsPerCampaign: 2000,
-        registrationEnabled: true
+        registrationEnabled: true,
+        autoApprovePayments: false
       };
       return {
         code: 777,
@@ -2361,6 +2465,53 @@ export async function deleteOldClientLogs({
     return {
       code: 500,
       message: 'Failed to delete old client logs'
+    };
+  }
+}
+
+export async function deleteOldPayments({
+  monthsOld = 1
+}: {
+  monthsOld?: number;
+} = {}): Promise<{
+  code: number;
+  message: string;
+  deletedCount?: number;
+}> {
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setMonth(cutoffDate.getMonth() - monthsOld);
+
+    const paymentsSnapshot = await getDocs(collection(db, 'payments'));
+    let deletedCount = 0;
+
+    const deletePromises = [];
+    
+    for (const paymentDoc of paymentsSnapshot.docs) {
+      const data = paymentDoc.data();
+      const paymentDate = data.mpesaCompletedAt?.toDate?.() || 
+                         data.approvedAt?.toDate?.() || 
+                         data.createdAt?.toDate?.() ||
+                         new Date(data.createdAt);
+      
+      if (paymentDate < cutoffDate) {
+        deletePromises.push(deleteDoc(paymentDoc.ref));
+        deletedCount++;
+      }
+    }
+
+    await Promise.all(deletePromises);
+
+    return {
+      code: 777,
+      message: `Successfully deleted ${deletedCount} old payment(s) (${monthsOld} month${monthsOld > 1 ? 's' : ''} old)`,
+      deletedCount
+    };
+  } catch (error) {
+    console.error('Error deleting old payments:', error);
+    return {
+      code: 500,
+      message: 'Failed to delete old payments'
     };
   }
 }

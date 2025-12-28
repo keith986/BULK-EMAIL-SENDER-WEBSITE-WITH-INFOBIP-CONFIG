@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Shield, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Clock } from 'lucide-react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, db } from '../../_lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { useUser } from '../../_context/UserProvider';
@@ -195,7 +195,7 @@ export default function AdminLogin() {
 
       try {
         await signInWithEmailAndPassword(auth, email, password);
-        await auth.signOut();
+        await firebaseSignOut(auth);
       } catch (authError) {
         await logAdminLogin({
           adminEmail: email,
@@ -329,7 +329,7 @@ export default function AdminLogin() {
         
         const stillAdmin = await validateAdmin(email);
         if (!stillAdmin) {
-          await auth.signOut();
+          await signOut();
           await logAdminLogin({
             adminEmail: email,
             status: 'failed',

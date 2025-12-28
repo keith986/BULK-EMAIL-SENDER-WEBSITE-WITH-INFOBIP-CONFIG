@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect } from 'react';
-import { X, Smartphone, Check, AlertCircle, XCircle, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { X, Smartphone, Check, AlertCircle, XCircle, Clock, Loader2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 interface PaymentModalProps {
@@ -32,12 +32,12 @@ export default function PaymentModal({
 }: PaymentModalProps) {
   const [mpesaPhone, setMpesaPhone] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [paymentStep, setPaymentStep] = useState<'details' | 'processing' | 'verifying' | 'result'>('details');
+  const [paymentStep, setPaymentStep] = useState<'details' | 'processing' | 'awaiting' | 'verifying' | 'result'>('details');
   const [checkoutRequestId, setCheckoutRequestId] = useState('');
   const [paymentId, setPaymentId] = useState('');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('pending');
   const [statusMessage, setStatusMessage] = useState('');
-  const [timeRemaining, setTimeRemaining] = useState(120); // 2 minutes in seconds
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
   if (!isOpen) return null;
 
@@ -59,65 +59,6 @@ export default function PaymentModal({
     return parsed;
   };
 
-  // Timer countdown
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    
-    if (paymentStep === 'verifying' && timeRemaining > 0) {
-      timer = setInterval(() => {
-        setTimeRemaining(prev => prev - 1);
-      }, 1000);
-    }
-
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [paymentStep, timeRemaining]);
-
-  // Payment status polling
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    let pollCount = 0;
-    const MAX_POLLS = 24; // 24 polls * 5 seconds = 2 minutes
-    
-    if (paymentStep === 'verifying' && checkoutRequestId && paymentId) {
-      interval = setInterval(async () => {
-        pollCount++;
-        
-        if (pollCount >= MAX_POLLS) {
-          clearInterval(interval);
-          setIsProcessing(false);
-          setPaymentStatus('timeout');
-          setStatusMessage('Payment not received within 2 minutes. If you completed the payment, it will be verified by admin.');
-          setPaymentStep('result');
-          
-          const { updatePaymentStatus } = await import('../_utils/firebase-operations');
-          await updatePaymentStatus({
-            paymentId: paymentId,
-            status: 'pending',
-            paymentDetails: { 
-              error: 'Payment verification timeout - awaiting admin approval',
-              pollCount: pollCount
-            }
-          });
-          return;
-        }
-        
-        await checkPaymentStatus();
-      }, 5000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [paymentStep, checkoutRequestId, paymentId]);
-
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   const handleMpesaPayment = async () => {
     if (!mpesaPhone || mpesaPhone.length < 9) {
       toast.error('Please enter a valid phone number');
@@ -134,7 +75,6 @@ export default function PaymentModal({
     setIsProcessing(true);
     setPaymentStep('processing');
     setPaymentStatus('pending');
-    setTimeRemaining(120);
 
     try {
       const { createPaymentRecord, updatePaymentStatus } = await import('../_utils/firebase-operations');
@@ -172,6 +112,12 @@ export default function PaymentModal({
           accountReference: `COINS-${createdPaymentId.slice(-8)}`,
           transactionDesc: `Purchase ${totalCoins} coins`,
           paymentId: createdPaymentId,
+          userId,
+          userEmail,
+          userName,
+          coins: totalCoins,
+          packageId: packageData.packageId,
+          packageInfo: packageData.packageInfo,
         }),
       });
 
@@ -190,7 +136,8 @@ export default function PaymentModal({
         });
 
         setCheckoutRequestId(data.checkoutRequestId);
-        setPaymentStep('verifying');
+        setPaymentStep('awaiting');
+        setIsProcessing(false);
         
         toast.success('Check your phone for M-Pesa payment prompt!');
       } else {
@@ -214,7 +161,15 @@ export default function PaymentModal({
     }
   };
 
-  const checkPaymentStatus = async () => {
+  const handleCompletePayment = async () => {
+    if (!checkoutRequestId) {
+      toast.error('No payment request found');
+      return;
+    }
+
+    setIsCheckingStatus(true);
+    setPaymentStep('verifying');
+
     try {
       const response = await fetch(`/api/mpesa?checkoutRequestId=${checkoutRequestId}`, {
         method: 'GET',
@@ -224,8 +179,7 @@ export default function PaymentModal({
       });
 
       if (!response.ok) {
-        console.error('Payment status check failed:', response.status);
-        return;
+        throw new Error('Failed to check payment status');
       }
 
       const data = await response.json();
@@ -234,6 +188,7 @@ export default function PaymentModal({
         const { ResultCode, ResultDesc } = data.data;
 
         if (ResultCode === '0') {
+          // Payment successful
           try {
             const { updatePaymentStatus } = await import('../_utils/firebase-operations');
             
@@ -242,7 +197,6 @@ export default function PaymentModal({
             const transactionDate = callbackMetadata.find((item: any) => item.Name === 'TransactionDate')?.Value || '';
             const phoneNumber = callbackMetadata.find((item: any) => item.Name === 'PhoneNumber')?.Value || '';
 
-            // Update payment status to completed but don't allocate coins yet
             await updatePaymentStatus({
               paymentId: paymentId,
               status: 'completed',
@@ -261,7 +215,7 @@ export default function PaymentModal({
             setPaymentStatus('success');
             setStatusMessage(`Payment received! Receipt: ${mpesaReceiptNumber}. Awaiting admin approval to credit coins.`);
             setPaymentStep('result');
-            setIsProcessing(false);
+            setIsCheckingStatus(false);
 
             toast.success('Payment successful! Admin will approve and credit your coins shortly.');
             
@@ -275,19 +229,23 @@ export default function PaymentModal({
             setPaymentStatus('failed');
             setStatusMessage('Payment received but system error. Contact support immediately.');
             setPaymentStep('result');
-            setIsProcessing(false);
+            setIsCheckingStatus(false);
           }
         } 
         else if (ResultCode === '1032') {
-          // Still pending or cancelled - continue polling
-          console.log('Payment pending or cancelled by user');
+          // Payment cancelled or still pending
+          setPaymentStatus('pending');
+          setStatusMessage('Payment not completed yet. Please complete the M-Pesa prompt on your phone and try again.');
+          setPaymentStep('awaiting');
+          setIsCheckingStatus(false);
+          toast.info('Payment still pending. Complete on your phone and click "Complete Payment" again.');
         }
-        else if (ResultCode) {
-          // Any other code is a failure
+        else {
+          // Payment failed
           setPaymentStatus('failed');
           setStatusMessage(ResultDesc || 'Payment was not completed');
           setPaymentStep('result');
-          setIsProcessing(false);
+          setIsCheckingStatus(false);
           
           const { updatePaymentStatus } = await import('../_utils/firebase-operations');
           await updatePaymentStatus({
@@ -301,9 +259,21 @@ export default function PaymentModal({
           
           toast.error(`Payment failed: ${ResultDesc}`);
         }
+      } else {
+        // No data returned - still pending
+        setPaymentStatus('pending');
+        setStatusMessage('Payment status unknown. Please complete the M-Pesa prompt and try again.');
+        setPaymentStep('awaiting');
+        setIsCheckingStatus(false);
+        toast.info('Still waiting for payment. Complete on your phone and try again.');
       }
     } catch (error) {
       console.error('Error checking payment status:', error);
+      setPaymentStatus('pending');
+      setStatusMessage('Error checking payment. Please try again.');
+      setPaymentStep('awaiting');
+      setIsCheckingStatus(false);
+      toast.error('Error checking payment status. Please try again.');
     }
   };
 
@@ -315,11 +285,11 @@ export default function PaymentModal({
     setPaymentId('');
     setPaymentStatus('pending');
     setStatusMessage('');
-    setTimeRemaining(120);
+    setIsCheckingStatus(false);
   };
 
   const handleClose = () => {
-    if (!isProcessing) {
+    if (!isProcessing && !isCheckingStatus) {
       resetForm();
       onClose();
     }
@@ -339,7 +309,7 @@ export default function PaymentModal({
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h3 className="text-2xl font-bold text-gray-800">Complete Payment</h3>
-            {!isProcessing && (
+            {!isProcessing && !isCheckingStatus && (
               <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <X className="w-6 h-6" />
               </button>
@@ -397,7 +367,7 @@ export default function PaymentModal({
 
               <button
                 onClick={handleMpesaPayment}
-                disabled={!mpesaPhone || mpesaPhone.length < 9}
+                disabled={!mpesaPhone || mpesaPhone.length < 9 || isProcessing}
                 className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
                 <Smartphone className="w-5 h-5" />
@@ -406,31 +376,73 @@ export default function PaymentModal({
             </div>
           )}
 
-          {(paymentStep === 'processing' || paymentStep === 'verifying') && (
+          {paymentStep === 'processing' && (
             <div className="text-center py-8">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
-                <svg className="animate-spin h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
               </div>
-              <h4 className="text-lg font-bold text-gray-800 mb-2">
-                {paymentStep === 'verifying' ? 'Waiting for Payment...' : 'Sending Request...'}
-              </h4>
-              <p className="text-sm text-gray-600 mb-4">
-                {paymentStep === 'verifying'
-                  ? 'Complete the payment on your phone'
-                  : 'Check your phone for M-Pesa prompt'}
+              <h4 className="text-lg font-bold text-gray-800 mb-2">Sending Request...</h4>
+              <p className="text-sm text-gray-600">Please wait while we send the payment prompt</p>
+            </div>
+          )}
+
+          {paymentStep === 'awaiting' && (
+            <div className="text-center py-3">
+              <h4 className="text-lg font-bold text-gray-800 mb-2">Check Your Phone</h4>
+              <p className="text-sm text-gray-600 mb-2">
+                Complete the M-Pesa payment on your phone, then click the button below to verify.
               </p>
-              {paymentStep === 'verifying' && (
-                <>
-                  <div className="flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 mb-2">
-                    <Clock className="w-5 h-5" />
-                    <span>{formatTime(timeRemaining)}</span>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-3">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-yellow-800 text-left">
+                    <p className="font-semibold mb-1">Important:</p>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Enter your M-Pesa PIN on your phone</li>
+                      <li>Confirm the payment amount</li>
+                      <li>Wait for M-Pesa confirmation SMS</li>
+                      <li>Click on Complete Payment button below</li>
+                    </ol>
                   </div>
-                  <p className="text-xs text-gray-500">Time remaining to complete payment</p>
-                </>
-              )}
+                </div>
+              </div>
+
+              <button
+                onClick={handleCompletePayment}
+                disabled={isCheckingStatus}
+                className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 cursor-pointer opacity-70 hover:opacity-90"
+              >
+                {isCheckingStatus ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Checking Payment...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-5 h-5" />
+                    Complete Payment
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleTryAgain}
+                disabled={isCheckingStatus}
+                className="w-full mt-3 text-gray-600 hover:text-gray-800 transition-colors text-sm font-medium cursor-pointer hover:bg-slate-300 rounded-lg px-4 py-2"
+              >
+                Cancel & Try Again
+              </button>
+            </div>
+          )}
+
+          {paymentStep === 'verifying' && (
+            <div className="text-center py-8">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
+                <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+              </div>
+              <h4 className="text-lg font-bold text-gray-800 mb-2">Verifying Payment...</h4>
+              <p className="text-sm text-gray-600">Please wait while we check your payment status</p>
             </div>
           )}
 
@@ -488,7 +500,7 @@ export default function PaymentModal({
         </div>
 
         {paymentStep !== 'processing' && paymentStep !== 'verifying' && paymentStep !== 'result' && (
-          <div className="px-6 pb-6">
+          <div className="px-6 pb-3">
             <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
               <svg className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/>

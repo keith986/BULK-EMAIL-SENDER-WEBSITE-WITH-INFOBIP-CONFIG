@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
 
 async function fetchApiKeyForUser(userId = '123') {
   const q = query(collection(db, 'apikeys'), where('userId', '==', userId));
   const snapshot = await getDocs(q);
   if (snapshot.empty) return null;
-  return snapshot.docs[0].data();
+  return { docRef: snapshot.docs[0].ref, data: snapshot.docs[0].data() };
 }
 
 async function fetchBatchSettingsForUser(userId = '123') {
@@ -25,10 +25,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ code: 400, message: 'Missing subject, Email Content, or recipients' }, { status: 400 });
     }
 
-    const apiDoc = await fetchApiKeyForUser(userId);
-    if (!apiDoc || !apiDoc.apiKey) {
+    // Verify user has coins before allowing send
+    const coinsQuery = query(collection(db, 'coins'), where('userId', '==', userId));
+    const coinsSnapshot = await getDocs(coinsQuery);
+    const currentCoins = !coinsSnapshot.empty ? (coinsSnapshot.docs[0].data().coins || 0) : 0;
+
+    if (!currentCoins || currentCoins <= 0) {
+      // Remove API key server-side to prevent usage
+      const apiDocWrap = await fetchApiKeyForUser(userId);
+      if (apiDocWrap && apiDocWrap.docRef) {
+        try { await updateDoc(apiDocWrap.docRef, { apiKey: '', updatedAt: new Date().toISOString() }); } catch (e) { console.error('Failed to clear api key for user:', e); }
+      }
+      return NextResponse.json({ code: 403, message: 'No coins available. API access revoked.' }, { status: 403 });
+    }
+
+    const apiDocWrap = await fetchApiKeyForUser(userId);
+    if (!apiDocWrap || !apiDocWrap.data || !apiDocWrap.data.apiKey) {
       return NextResponse.json({ code: 400, message: 'API key not configured for user' }, { status: 400 });
     }
+
+    const apiDoc = apiDocWrap.data as any;
 
     const batchDoc = await fetchBatchSettingsForUser(userId);
     const batchSize = batchDoc && batchDoc.batchsize ? parseInt(String(batchDoc.batchsize), 10) : 10;
@@ -47,6 +63,7 @@ export async function POST(req: Request) {
 
     const results: Array<Record<string, unknown>> = [];
 
+    let sentCount = 0;
     for (let i = 0; i < chunks.length; i++) {
       const batch = chunks[i];
 
@@ -68,6 +85,7 @@ export async function POST(req: Request) {
 
           const respBody = await resp.text();
           results.push({ email: r.email, status: resp.ok ? 'sent' : 'error', statusCode: resp.status, body: respBody });
+          if (resp.ok) sentCount++;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           results.push({ email: r.email, status: 'error', message: msg });
@@ -101,7 +119,35 @@ export async function POST(req: Request) {
       console.error('Failed to save campaign history:', saveErr);
     }
 
-    return NextResponse.json({ code: 777, message: 'Batch send completed', results });
+      // Deduct sentCount from user's coins and clients.emailsRemaining
+      try {
+        if (sentCount > 0) {
+          const q = query(collection(db, 'coins'), where('userId', '==', userId));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const coinsDoc = snap.docs[0];
+            const current = coinsDoc.data().coins || 0;
+            const newBalance = Math.max(0, current - sentCount);
+            await updateDoc(doc(db, 'coins', coinsDoc.id), { coins: newBalance, updatedAt: new Date().toISOString() });
+          }
+
+          const clientRef = doc(db, 'clients', userId);
+          try {
+            const clientDoc = await getDoc(clientRef);
+            if (clientDoc.exists()) {
+              const c = clientDoc.data() as any;
+              const newRemaining = Math.max(0, (c.emailsRemaining || 0) - sentCount);
+              await updateDoc(clientRef, { emailsRemaining: newRemaining, updatedAt: new Date().toISOString() });
+            }
+          } catch (e) {
+            console.error('Failed to update client emailsRemaining:', e);
+          }
+        }
+      } catch (e) {
+        console.error('Error deducting coins after send:', e);
+      }
+
+      return NextResponse.json({ code: 777, message: 'Batch send completed', results });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ code: 101, message: msg }, { status: 500 });

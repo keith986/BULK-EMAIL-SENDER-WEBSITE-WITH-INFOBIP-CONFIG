@@ -14,7 +14,7 @@ const PRODUCTION_URL = 'https://api.safaricom.co.ke';
 const BASE_URL = MPESA_ENVIRONMENT === 'production' ? PRODUCTION_URL : SANDBOX_URL;
 
 // Disable default Next.js timeout for API routes
-export const maxDuration = 60; // 60 seconds max
+export const maxDuration = 120; // 120 seconds - M-Pesa calls with retries can take time
 export const dynamic = 'force-dynamic';
 
 // Generate OAuth token with improved error handling
@@ -25,8 +25,12 @@ async function getAccessToken(): Promise<string> {
   let lastError: any;
 
   while (retries > 0) {
+    let timeoutId: NodeJS.Timeout | null = null;
     try {
       console.log(`Attempting to get access token (attempt ${4 - retries}/3)...`);
+      
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
       const response = await fetch(`${BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
         method: 'GET',
@@ -35,7 +39,10 @@ async function getAccessToken(): Promise<string> {
           'Content-Type': 'application/json',
         },
         cache: 'no-store',
+        signal: controller.signal,
       });
+      
+      if (timeoutId) clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -52,6 +59,7 @@ async function getAccessToken(): Promise<string> {
       return data.access_token;
       
     } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
       lastError = error;
       retries--;
       console.error(`Token fetch failed (attempt ${4 - retries}/3):`, error);
@@ -210,7 +218,7 @@ export async function POST(request: NextRequest) {
       Password: password,
       Timestamp: timestamp,
       TransactionType: 'CustomerPayBillOnline',
-      Amount: finalAmount,
+      Amount: 1,
       PartyA: formattedPhone,
       PartyB: MPESA_SHORTCODE,
       PhoneNumber: formattedPhone,
@@ -229,8 +237,12 @@ export async function POST(request: NextRequest) {
     console.log('Step 3: Sending STK Push to M-Pesa...');
     
     let mpesaResponse: Response;
+    let stkPushTimeoutId: NodeJS.Timeout | null = null;
     
     try {
+      const controller = new AbortController();
+      stkPushTimeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout for STK push
+      
       mpesaResponse = await fetch(`${BASE_URL}/mpesa/stkpush/v1/processrequest`, {
         method: 'POST',
         headers: {
@@ -239,11 +251,15 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify(stkPushPayload),
         cache: 'no-store',
+        signal: controller.signal,
       });
+      
+      if (stkPushTimeoutId) clearTimeout(stkPushTimeoutId);
 
       console.log('M-Pesa API response status:', mpesaResponse.status);
 
     } catch (error: any) {
+      if (stkPushTimeoutId) clearTimeout(stkPushTimeoutId);
       console.error('❌ STK Push request failed:', error);
       return NextResponse.json(
         {
@@ -280,25 +296,33 @@ export async function POST(request: NextRequest) {
       console.log('CheckoutRequestID:', mpesaData.CheckoutRequestID);
       console.log('MerchantRequestID:', mpesaData.MerchantRequestID);
       
-      // Step 5: Create payment record in Firebase (non-blocking)
-      console.log('Step 4: Creating payment record in Firebase...');
+      // Validate coins - payment record should have been created by PaymentModal already
+      if (!coins || coins <= 0) {
+        console.warn('⚠️ Invalid coins value:', coins);
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Invalid package: no coins specified.',
+            errorCode: 'INVALID_COINS',
+          },
+          { status: 400 }
+        );
+      }
+
+      // Payment record already created by PaymentModal; link M-Pesa request to it
+      console.log('Step 4: Linking M-Pesa request to existing payment record...');
       
-      // Don't wait for Firebase - return success immediately
-      createPaymentRecordAsync({
-        userId: userId || 'unknown',
-        userEmail: userEmail || 'unknown',
-        userName: userName || 'Unknown User',
-        amount: finalAmount,
-        coins: coins || 0,
-        packageId: packageId || 'unknown',
-        packageInfo: packageInfo || 'Unknown Package',
-        formattedPhone,
-        checkoutRequestId: mpesaData.CheckoutRequestID,
-        merchantRequestId: mpesaData.MerchantRequestID,
-        responseDescription: mpesaData.ResponseDescription,
-      }).catch(error => {
-        console.error('Warning: Payment record creation failed (non-critical):', error);
-      });
+      // Update payment record with M-Pesa checkout details (non-blocking)
+      if (body.paymentId) {
+        updatePaymentAsync({
+          paymentId: body.paymentId,
+          checkoutRequestId: mpesaData.CheckoutRequestID,
+          merchantRequestId: mpesaData.MerchantRequestID,
+          responseDescription: mpesaData.ResponseDescription,
+        }).catch(error => {
+          console.error('Warning: Payment linking failed (non-critical):', error);
+        });
+      }
 
       const elapsed = Date.now() - startTime;
       console.log(`✅ Request completed in ${elapsed}ms`);
@@ -346,7 +370,40 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Async function to create payment record (non-blocking)
+// Async function to update payment record with M-Pesa details (non-blocking)
+async function updatePaymentAsync(data: {
+  paymentId: string;
+  checkoutRequestId: string;
+  merchantRequestId: string;
+  responseDescription: string;
+}) {
+  try {
+    const { updatePaymentStatus } = await import('@/app/_utils/firebase-operations');
+    
+    const result = await updatePaymentStatus({
+      paymentId: data.paymentId,
+      status: 'pending',
+      mpesaCheckoutRequestId: data.checkoutRequestId,
+      paymentDetails: {
+        merchantRequestId: data.merchantRequestId,
+        checkoutRequestId: data.checkoutRequestId,
+        responseDescription: data.responseDescription,
+        initiatedAt: new Date().toISOString(),
+      }
+    });
+
+    if (result.code === 777) {
+      console.log('✅ Payment linked to M-Pesa CheckoutRequestID');
+    } else {
+      console.error('❌ Failed to link payment to M-Pesa request:', result.message);
+    }
+  } catch (error) {
+    console.error('❌ Error in updatePaymentAsync:', error);
+    throw error;
+  }
+}
+
+// Async function to create payment record (kept for backward compatibility, not used in main flow)
 async function createPaymentRecordAsync(data: {
   userId: string;
   userEmail: string;

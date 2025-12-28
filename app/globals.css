@@ -21,3 +21,13 @@
 body {
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Use the app gradient as the page background so panels blend consistently */
+html, body, #__next {
+  height: 100%;
+}
+body {
+  background: linear-gradient(135deg, #fecaca 0%, #64748b 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}

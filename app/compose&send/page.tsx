@@ -599,7 +599,7 @@ export default function Compose () {
 
   if (showPreview) {
     return (
-      <div className="rounded-lg border-2 border-gray-200 overflow-hidden mt-40 m-4 md:mt-50 md:ml-70 md:m-10 sm:mt-50 sm:ml-70">
+      <div className="rounded-lg overflow-hidden mt-40 m-4 md:mt-50 md:ml-70 md:m-10 sm:mt-50 sm:ml-70 bg-gradient-to-br from-red-200 to-slate-500 p-4">
         <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-medium text-gray-600">Email Preview</p>
@@ -612,9 +612,9 @@ export default function Compose () {
             </button>
           </div>
         </div>
-        <div className="p-4 max-h-96 overflow-y-auto">
-          <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
-        </div>
+        <div className="p-4 max-h-96 overflow-y-auto bg-gray-50 rounded-b-lg">
+            <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
+          </div>
       </div>
     );
   }

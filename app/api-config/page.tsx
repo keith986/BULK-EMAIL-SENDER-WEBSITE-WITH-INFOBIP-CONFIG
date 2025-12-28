@@ -9,7 +9,7 @@ import { useUser } from '../_context/UserProvider';
 
 export default function ApiConfigPage(){
 // API Configuration state
-const [apiKey, setApiKey] = useState('');
+const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
 const [baseUrl, setBaseUrl] = useState('https://api.infobip.com');
 const [loading, setLoading] = useState(false);
 const { user } = useUser();
@@ -19,14 +19,15 @@ const { user } = useUser();
 // Fetch existing API key from Firebase (if any) when component mounts
 useEffect(() => {
     if (user?.uid) {
-      fetchApiKeyFromFirebase({ userid: user.uid })
-        .then(result => {
-          if (result.code === 777 && result.data?.apiKey) {
-            setApiKey(result.data.apiKey);
-          }
+      // Check configured status from server
+      fetch(`/api/apitest?userId=${encodeURIComponent(user.uid)}`)
+        .then(res => res.json())
+        .then(data => {
+          setIsConfigured(Boolean(data?.configured));
         })
-        .catch(error => {
-          console.error('Error fetching API key:', error);
+        .catch(err => {
+          console.error('Error checking API config status:', err);
+          setIsConfigured(false);
         });
     }
   }, [user?.uid]);
@@ -39,29 +40,23 @@ const handleToggleEye = () => {
 }
 */
 
-const testConnection = async () => {
+  const testConnection = async () => {
   try {
+    if (!user?.uid) return toast.error('User not identified');
     setLoading(true);
-    const response = await fetch(`${baseUrl}/email/3/send`, {
+    const resp = await fetch('/api/apitest', {
       method: 'POST',
-      headers: {
-        'Authorization': `App ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'test@example.com',
-        to: 'test@example.com',
-        subject: 'API Test',
-        html: '<p>This is a test sample. If you got this email, it means the API is working!</p>'
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.uid })
     });
-    
-    if (response.ok) {
+    const data = await resp.json();
+    setLoading(false);
+    if (data?.code === 777) {
       toast.success('API connection successful!');
-      setLoading(false);
+      setIsConfigured(true);
     } else {
       toast.error('API connection failed. Check your credentials.');
-      setLoading(false);
+      setIsConfigured(false);
     }
   } catch (error) {
     toast.error('Connection error: ' + (error instanceof Error ? error.message : String(error)));
@@ -187,15 +182,19 @@ const handleDeleteApiKey = async () => {
             <div className="space-y-1 text-sm">
               {/* API Key Status */}
               <div className="flex items-center gap-2">
-                {apiKey ? (
+                {isConfigured ? (
                   <>
                     <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span className="text-green-600 font-medium">API Key configured</span>
+                    <span className="text-green-600 font-medium">API configured (server-side)</span>
+                  </>
+                ) : isConfigured === false ? (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-red-600" />
+                    <span className="text-red-600 font-medium">API not configured</span>
                   </>
                 ) : (
                   <>
-                    <AlertCircle className="w-4 h-4 text-red-600" />
-                    <span className="text-red-600 font-medium">API Key required</span>
+                    <span className="text-gray-600">Checking...</span>
                   </>
                 )}
               </div>

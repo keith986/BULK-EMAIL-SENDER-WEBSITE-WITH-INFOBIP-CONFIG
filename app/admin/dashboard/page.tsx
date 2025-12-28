@@ -4,7 +4,7 @@ import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity
 import { collection, getDocs, query, where, updateDoc, doc, deleteDoc, setDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
 import AdminProtected  from '../../_components/AdminProtected'
-import { fetchAllPayments, fetchSystemSettings, saveSystemSettings, deleteOldCampaigns, exportAllData, fetchAdminLoginLogs, getAdminLoginStats, deleteOldAdminLogs } from '../../_utils/firebase-operations';
+import { fetchAllPayments, fetchSystemSettings, saveSystemSettings, deleteOldCampaigns, exportAllData, fetchAdminLoginLogs, getAdminLoginStats, deleteOldAdminLogs, deleteOldPayments } from '../../_utils/firebase-operations';
 
 interface User {
   id: string;
@@ -225,6 +225,14 @@ export default function AdminDashboard() {
   recentActivity: 0
   });
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [adminPaymentPage, setAdminPaymentPage] = useState(1);
+  const ADMIN_PAYMENTS_PER_PAGE = 5;
+  const [userPage, setUserPage] = useState(1);
+  const USERS_PER_PAGE = 5;
+  const [campaignPage, setCampaignPage] = useState(1);
+  const CAMPAIGNS_PER_PAGE = 5;
+  const [logsPage, setLogsPage] = useState(1);
+  const LOGS_PER_PAGE = 5;
   const [showPaymentReviewModal, setShowPaymentReviewModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -237,13 +245,22 @@ export default function AdminDashboard() {
 const [systemSettings, setSystemSettings] = useState<{
   maxRecipientsPerCampaign: number;
   registrationEnabled: boolean;
+  autoApprovePayments?: boolean;
 }>({
   maxRecipientsPerCampaign: 2000,
-  registrationEnabled: true
+  registrationEnabled: true,
+  autoApprovePayments: false
 });
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
     setToast({ message, type });
+  };
+
+  // Reset pagination when search query changes
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setUserPage(1);
+    setCampaignPage(1);
   };
 
 useEffect(() => {
@@ -252,9 +269,18 @@ useEffect(() => {
   loadPayments();
   loadSystemSettings();
 
+  // Auto-delete old payments (older than 1 month) and logs in background
+  deleteOldPayments({ monthsOld: 1 }).catch(err => {
+    console.error('Background payment cleanup failed:', err);
+  });
+  deleteOldAdminLogs({ daysOld: 7 }).catch(err => {
+    console.error('Background log cleanup failed:', err);
+  });
+
   // Set up periodic cleanup every hour while dashboard is open
   const cleanupInterval = setInterval(async () => {
     try {
+      await deleteOldPayments({ monthsOld: 1 });
       await deleteOldAdminLogs({ daysOld: 7 });
     } catch (error) {
       console.error('Periodic cleanup failed:', error);
@@ -340,6 +366,7 @@ const loadAdminLogs = async () => {
       }
 
       setUsers(clientsData);
+      setUserPage(1);
 
       const campaignsSnapshot = await getDocs(collection(db, 'campaigns'));
       const campaignsData: Campaign[] = [];
@@ -364,6 +391,7 @@ const loadAdminLogs = async () => {
       }
 
       setCampaigns(campaignsData);
+      setCampaignPage(1);
 
       const totalEmailsSent = campaignsData.reduce((sum, c) => sum + c.sentCount, 0);
       const totalEmailsAttempted = campaignsData.reduce((sum, c) => sum + c.recipientsCount, 0);
@@ -620,16 +648,43 @@ const loadPayments = async () => {
   try {
     const result = await fetchAllPayments();
     if (result.code === 777 && result.data) {
-      // Filter out cancelled payments - only show pending and completed
+      // Filter out cancelled, failed, and zero-coin payments - only show valid pending and completed
       console.log(result.data)
       const filteredPayments = result.data.payments.filter(
-        (p: any) => p.paymentStatus !== 'cancelled' && p.paymentStatus !== 'failed'
+        (p: any) => p.paymentStatus !== 'cancelled' && p.paymentStatus !== 'failed' && (p.coins || 0) > 0
       );
-      setPayments(filteredPayments);
+      
+      // Sort by most recent first
+      const sortedPayments = filteredPayments.sort((a: any, b: any) => {
+        const dateA = a.mpesaCompletedAt || a.approvedAt || a.createdAt || 0;
+        const dateB = b.mpesaCompletedAt || b.approvedAt || b.createdAt || 0;
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      });
+      
+      setPayments(sortedPayments);
+      setAdminPaymentPage(1);
     }
   } catch (error) {
     console.error('Error loading payments:', error);
     showToast('Error loading payments', 'error');
+  }
+};
+
+// Helper to format various Firestore timestamp shapes
+const formatPaymentDate = (d: any) => {
+  try {
+    if (!d) return '-';
+    // Firestore Timestamp has toDate()
+    if (typeof d.toDate === 'function') return d.toDate().toLocaleString();
+    // Object with seconds
+    if (d.seconds) return new Date(d.seconds * 1000).toLocaleString();
+    // ISO string
+    if (typeof d === 'string') return new Date(d).toLocaleString();
+    // JS Date
+    if (d instanceof Date) return d.toLocaleString();
+    return String(d);
+  } catch (err) {
+    return '-';
   }
 };
 
@@ -643,6 +698,7 @@ const confirmApprovePayment = async () => {
   if (!selectedPayment) return;
 
   try {
+    console.log('Admin confirming approve for payment:', selectedPayment);
     const { approvePayment } = await import('../../_utils/firebase-operations');
     const result = await approvePayment({
       paymentId: selectedPayment.id,
@@ -652,6 +708,7 @@ const confirmApprovePayment = async () => {
       packageInfo: selectedPayment.packageInfo
     });
 
+    console.log('approvePayment result:', result);
     if (result.code === 777) {
       showToast('Payment approved and coins credited successfully!', 'success');
       setShowPaymentReviewModal(false);
@@ -669,20 +726,20 @@ const confirmApprovePayment = async () => {
 
 const handleRejectPayment = async (payment: Payment) => {
   const reason = prompt('Rejection reason (optional):');
-  
+
   try {
-    const { updatePaymentStatus } = await import('../../_utils/firebase-operations');
-    const result = await updatePaymentStatus({
+    const { rejectPayment } = await import('../../_utils/firebase-operations');
+    const result = await rejectPayment({
       paymentId: payment.id,
-      status: 'failed',
-      paymentDetails: { rejectionReason: reason || 'Rejected by admin' }
+      rejectionReason: reason || 'Rejected by admin'
     });
 
     if (result.code === 777) {
       showToast('Payment rejected', 'success');
       loadPayments();
+      loadDataFromFirebase(); // refresh user coins/subscription
     } else {
-      showToast('Failed to reject payment', 'error');
+      showToast('Failed to reject payment: ' + result.message, 'error');
     }
   } catch (error) {
     console.error('Error rejecting payment:', error);
@@ -760,6 +817,12 @@ const loadSystemSettings = async () => {
   try {
     const result = await fetchSystemSettings();
     if (result.code === 777 && result.data) {
+      console.log('📋 System settings loaded from Firestore:', {
+        maxRecipientsPerCampaign: result.data.maxRecipientsPerCampaign,
+        registrationEnabled: result.data.registrationEnabled,
+        autoApprovePayments: result.data.autoApprovePayments,
+        autoApprovePaymentsType: typeof result.data.autoApprovePayments
+      });
       setSystemSettings(result.data);
     }
   } catch (error) {
@@ -771,9 +834,16 @@ const loadSystemSettings = async () => {
 const handleSaveSettings = async () => {
   setLoading(true);
   try {
+    console.log('💾 Saving system settings:', {
+      maxRecipientsPerCampaign: systemSettings.maxRecipientsPerCampaign,
+      registrationEnabled: systemSettings.registrationEnabled,
+      autoApprovePayments: systemSettings.autoApprovePayments,
+      autoApprovePaymentsType: typeof systemSettings.autoApprovePayments
+    });
     const result = await saveSystemSettings({ settings: systemSettings });
     
     if (result.code === 777) {
+      console.log('✅ Settings saved successfully to Firestore');
       showToast('Settings saved successfully', 'success');
     } else {
       showToast('Failed to save settings: ' + result.message, 'error');
@@ -1007,7 +1077,7 @@ async function handleDeleteOldCampaigns() {
         <input
           type="text"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => handleSearchChange(e.target.value)}
           placeholder="Search users by email or name..."
           className="flex-1 outline-none text-gray-700"
         />
@@ -1025,12 +1095,13 @@ async function handleDeleteOldCampaigns() {
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Coins Balance</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Emails Sent</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">API Key</th>
+              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Date</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
               <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filteredUsers.map((user) => {
+            {filteredUsers.slice((userPage - 1) * USERS_PER_PAGE, userPage * USERS_PER_PAGE).map((user) => {
               const packageInfo = pricingPlans.find(p => p.id === user.subscriptionStatus);
               const coinsUsed = (user.totalEmailsAllowed || 0) - (user.emailsRemaining || 0);
               const usagePercentage = user.coins ? ((coinsUsed / (user.coins + coinsUsed)) * 100) : 0;
@@ -1207,6 +1278,46 @@ async function handleDeleteOldCampaigns() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {filteredUsers.length > USERS_PER_PAGE && (
+        <div className="bg-white rounded-lg p-4 shadow-md flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Showing {((userPage - 1) * USERS_PER_PAGE) + 1} to {Math.min(userPage * USERS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length} users
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setUserPage(Math.max(1, userPage - 1))}
+              disabled={userPage === 1}
+              className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Previous
+            </button>
+            
+            {Array.from({ length: Math.ceil(filteredUsers.length / USERS_PER_PAGE) }).map((_, i) => (
+              <button
+                key={i + 1}
+                onClick={() => setUserPage(i + 1)}
+                className={`px-3 py-2 rounded transition-colors ${
+                  userPage === i + 1
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
+            
+            <button
+              onClick={() => setUserPage(Math.min(Math.ceil(filteredUsers.length / USERS_PER_PAGE), userPage + 1))}
+              disabled={userPage === Math.ceil(filteredUsers.length / USERS_PER_PAGE)}
+              className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
 
     {/* User Statistics Summary */}
@@ -1281,7 +1392,7 @@ async function handleDeleteOldCampaigns() {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search campaigns by subject or user..."
                 className="flex-1 outline-none text-gray-700"
               />
@@ -1305,7 +1416,7 @@ async function handleDeleteOldCampaigns() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCampaigns.map((campaign) => {
+                  {filteredCampaigns.slice((campaignPage - 1) * CAMPAIGNS_PER_PAGE, campaignPage * CAMPAIGNS_PER_PAGE).map((campaign) => {
                     const successRate = (campaign.sentCount / campaign.recipientsCount) * 100;
                     return (
                       <tr key={campaign.id} className="border-b border-gray-100 hover:bg-gray-50">
@@ -1332,6 +1443,47 @@ async function handleDeleteOldCampaigns() {
               </table>
             </div>
           </div>
+
+          {/* Campaigns Pagination */}
+          {filteredCampaigns.length > CAMPAIGNS_PER_PAGE && (
+            <div className="bg-white rounded-lg p-4 shadow-md flex items-center justify-between mt-4">
+              <div className="text-sm text-gray-600">
+                Showing {((campaignPage - 1) * CAMPAIGNS_PER_PAGE) + 1} to {Math.min(campaignPage * CAMPAIGNS_PER_PAGE, filteredCampaigns.length)} of {filteredCampaigns.length} campaigns
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCampaignPage(Math.max(1, campaignPage - 1))}
+                  disabled={campaignPage === 1}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+
+                {Array.from({ length: Math.ceil(filteredCampaigns.length / CAMPAIGNS_PER_PAGE) }).map((_, i) => (
+                  <button
+                    key={i + 1}
+                    onClick={() => setCampaignPage(i + 1)}
+                    className={`px-3 py-2 rounded transition-colors ${
+                      campaignPage === i + 1
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => setCampaignPage(Math.min(Math.ceil(filteredCampaigns.length / CAMPAIGNS_PER_PAGE), campaignPage + 1))}
+                  disabled={campaignPage === Math.ceil(filteredCampaigns.length / CAMPAIGNS_PER_PAGE)}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
       )}
 
@@ -1528,6 +1680,27 @@ async function handleDeleteOldCampaigns() {
             <option value="disabled">Disabled</option>
           </select>
           <p className="text-xs text-gray-500 mt-1">Allow new users to register on the platform</p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Auto-Approve Payments
+          </label>
+          <select 
+            value={systemSettings.autoApprovePayments !== false ? 'enabled' : 'disabled'}
+            onChange={(e) => setSystemSettings({...systemSettings, autoApprovePayments: e.target.value === 'enabled'})}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="enabled">Enabled (Auto-approve on successful payment)</option>
+            <option value="disabled">Disabled (Manual admin approval required)</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            When enabled, successful M-Pesa payments are automatically approved and coins credited immediately. 
+            When disabled, admin must manually approve payments.
+          </p>
+          <p className={`text-xs mt-2 px-2 py-1 rounded ${systemSettings.autoApprovePayments === false ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'}`}>
+            Current setting: {systemSettings.autoApprovePayments === false ? '❌ Manual Approval Required' : '✅ Auto-Approve Enabled'}
+          </p>
         </div>
 
         <button 
@@ -1861,7 +2034,9 @@ async function handleDeleteOldCampaigns() {
                 </td>
               </tr>
             ) : (
-              filteredPayments.map((payment) => (
+              payments
+                .slice((adminPaymentPage - 1) * ADMIN_PAYMENTS_PER_PAGE, adminPaymentPage * ADMIN_PAYMENTS_PER_PAGE)
+                .map((payment) => (
                 <tr key={payment.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4">
                     <div>
@@ -1894,7 +2069,7 @@ async function handleDeleteOldCampaigns() {
                             <CreditCard className="w-4 h-4 text-blue-600" />
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-gray-800">Card</p>
+                            <p className="text-sm font-medium text-gray-800">system error</p>
                           </div>
                         </>
                       )}
@@ -1919,6 +2094,9 @@ async function handleDeleteOldCampaigns() {
                     </div>
                   </td>
                   
+                  <td className="py-3 px-4">
+                    <p className="text-sm text-gray-600">{formatPaymentDate(payment.mpesaCompletedAt || payment.approvedAt || payment.createdAt)}</p>
+                  </td>
                   <td className="py-3 px-4">
                     <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                       payment.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -1961,6 +2139,46 @@ async function handleDeleteOldCampaigns() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {payments.length > ADMIN_PAYMENTS_PER_PAGE && (
+        <div className="flex items-center justify-between mt-6 p-4 border-t border-gray-200">
+          <p className="text-sm text-gray-600">
+            Showing {(adminPaymentPage - 1) * ADMIN_PAYMENTS_PER_PAGE + 1} to {Math.min(adminPaymentPage * ADMIN_PAYMENTS_PER_PAGE, payments.length)} of {payments.length} payments
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAdminPaymentPage(p => Math.max(1, p - 1))}
+              disabled={adminPaymentPage === 1}
+              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300"
+            >
+              Previous
+            </button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.ceil(payments.length / ADMIN_PAYMENTS_PER_PAGE) }).map((_, i) => (
+                <button
+                  key={i + 1}
+                  onClick={() => setAdminPaymentPage(i + 1)}
+                  className={`px-3 py-2 rounded-lg ${
+                    adminPaymentPage === i + 1
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setAdminPaymentPage(p => Math.min(Math.ceil(payments.length / ADMIN_PAYMENTS_PER_PAGE), p + 1))}
+              disabled={adminPaymentPage === Math.ceil(payments.length / ADMIN_PAYMENTS_PER_PAGE)}
+              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   </div>
 )}
@@ -2148,23 +2366,13 @@ async function handleDeleteOldCampaigns() {
         </button>
         
         {selectedPayment.paymentStatus === 'pending' && (
-          <>
-            <button
-              onClick={() => handleRejectPayment([selectedPayment])}
-              className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
-            >
-              <X className="w-4 h-4" />
-              Reject Payment
-            </button>
-            
-            <button
-              onClick={confirmApprovePayment}
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-            >
-              <CheckCircle className="w-4 h-4" />
-              Approve & Credit Coins
-            </button>
-          </>
+          <button
+            onClick={confirmApprovePayment}
+            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+          >
+            <CheckCircle className="w-4 h-4" />
+            Approve & Credit Coins
+          </button>
         )}
       </div>
     </div>
@@ -2237,7 +2445,7 @@ async function handleDeleteOldCampaigns() {
                 </td>
               </tr>
             ) : (
-              adminLogs.map((log, index) => (
+              adminLogs.slice((logsPage - 1) * LOGS_PER_PAGE, logsPage * LOGS_PER_PAGE).map((log, index) => (
                 <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4">
                     <div>
@@ -2321,6 +2529,46 @@ async function handleDeleteOldCampaigns() {
         </table>
       </div>
     </div>
+
+    {/* Logs Pagination */}
+    {adminLogs.length > LOGS_PER_PAGE && (
+      <div className="bg-white rounded-lg p-4 shadow-md flex items-center justify-between mt-4">
+        <div className="text-sm text-gray-600">
+          Showing {((logsPage - 1) * LOGS_PER_PAGE) + 1} to {Math.min(logsPage * LOGS_PER_PAGE, adminLogs.length)} of {adminLogs.length} logs
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setLogsPage(Math.max(1, logsPage - 1))}
+            disabled={logsPage === 1}
+            className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Previous
+          </button>
+
+          {Array.from({ length: Math.ceil(adminLogs.length / LOGS_PER_PAGE) }).map((_, i) => (
+            <button
+              key={i + 1}
+              onClick={() => setLogsPage(i + 1)}
+              className={`px-3 py-2 rounded transition-colors ${
+                logsPage === i + 1
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+
+          <button
+            onClick={() => setLogsPage(Math.min(Math.ceil(adminLogs.length / LOGS_PER_PAGE), logsPage + 1))}
+            disabled={logsPage === Math.ceil(adminLogs.length / LOGS_PER_PAGE)}
+            className="px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    )}
 
     {/* Security Alerts */}
     {loginStats.failedLogins > 5 && (

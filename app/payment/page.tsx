@@ -34,9 +34,24 @@ export default function DashboardClient() {
   const [transactions, setTransactions] = useState<CoinTransaction[]>([]);
   const { user } = useUser();
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [paymentPage, setPaymentPage] = useState(1);
+  const PAYMENTS_PER_PAGE = 5;
 
   // Add state for payment modal
 const [selectedPackageData, setSelectedPackageData] = useState<any>(null);
+
+const formatPaymentDate = (d: any) => {
+  try {
+    if (!d) return '-';
+    if (typeof d.toDate === 'function') return d.toDate().toLocaleString();
+    if (d.seconds) return new Date(d.seconds * 1000).toLocaleString();
+    if (typeof d === 'string') return new Date(d).toLocaleString();
+    if (d instanceof Date) return d.toLocaleString();
+    return String(d);
+  } catch (err) {
+    return '-';
+  }
+};
 
   // Coin packages with CORRECT Kenyan Shilling prices
   const coinPackages: CoinPackage[] = [
@@ -216,8 +231,26 @@ const loadUserPayments = async () => {
         (p: any) => p.paymentStatus !== 'cancelled' && p.paymentStatus !== 'failed'
       );
       
-      console.log('Filtered payments:', filteredPayments);
-      setPendingRequests(filteredPayments);
+      // Helper to get timestamp as milliseconds for accurate sorting
+      const getTimestamp = (d: any): number => {
+        if (!d) return 0;
+        if (typeof d.toDate === 'function') return d.toDate().getTime();
+        if (d.seconds) return d.seconds * 1000;
+        if (typeof d === 'string') return new Date(d).getTime();
+        if (d instanceof Date) return d.getTime();
+        return 0;
+      };
+      
+      // Sort by most recent first (current payment at top)
+      const sortedPayments = filteredPayments.sort((a: any, b: any) => {
+        const dateA = getTimestamp(a.mpesaCompletedAt || a.approvedAt || a.createdAt);
+        const dateB = getTimestamp(b.mpesaCompletedAt || b.approvedAt || b.createdAt);
+        return dateB - dateA;
+      });
+      
+      console.log('Filtered and sorted payments:', sortedPayments);
+      setPendingRequests(sortedPayments);
+      setPaymentPage(1);
     }
   } catch (error) {
     console.error('Error loading payments:', error);
@@ -358,7 +391,9 @@ const handleSelectPackage = (packageIndex: number) => {
     
     
     <div className="space-y-4">
-      {pendingRequests.map((request: any) => {  
+      {pendingRequests
+        .slice((paymentPage - 1) * PAYMENTS_PER_PAGE, paymentPage * PAYMENTS_PER_PAGE)
+        .map((request: any) => {  
         const status = request.paymentStatus || 'pending';
      
         return (
@@ -395,7 +430,7 @@ const handleSelectPackage = (packageIndex: number) => {
                   )}
                 </div>
                 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-3">
                   <div>
                     <p className="text-xs text-gray-600">Amount</p>
                     <p className="text-sm font-semibold text-gray-800">
@@ -411,6 +446,13 @@ const handleSelectPackage = (packageIndex: number) => {
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
                       </svg>
                       {(request.coins || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-xs text-gray-600">Date</p>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {formatPaymentDate(request.mpesaCompletedAt || request.approvedAt || request.createdAt)}
                     </p>
                   </div>
                   
@@ -482,6 +524,46 @@ const handleSelectPackage = (packageIndex: number) => {
         );
       })}
     </div>
+
+    {/* Pagination Controls */}
+    {pendingRequests.length > PAYMENTS_PER_PAGE && (
+      <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
+        <p className="text-sm text-gray-600">
+          Showing {(paymentPage - 1) * PAYMENTS_PER_PAGE + 1} to {Math.min(paymentPage * PAYMENTS_PER_PAGE, pendingRequests.length)} of {pendingRequests.length} payments
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setPaymentPage(p => Math.max(1, p - 1))}
+            disabled={paymentPage === 1}
+            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300"
+          >
+            Previous
+          </button>
+          <div className="flex items-center gap-1">
+            {Array.from({ length: Math.ceil(pendingRequests.length / PAYMENTS_PER_PAGE) }).map((_, i) => (
+              <button
+                key={i + 1}
+                onClick={() => setPaymentPage(i + 1)}
+                className={`px-3 py-2 rounded-lg ${
+                  paymentPage === i + 1
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setPaymentPage(p => Math.min(Math.ceil(pendingRequests.length / PAYMENTS_PER_PAGE), p + 1))}
+            disabled={paymentPage === Math.ceil(pendingRequests.length / PAYMENTS_PER_PAGE)}
+            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    )}
   </div>
 )}
     </div>
