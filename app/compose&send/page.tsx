@@ -653,137 +653,354 @@ export default function Compose () {
     setHtmlContent(html);
   }, [text, fontSize, textColor, bgColor, alignment, padding, borderWidth, borderColor, borderRadius, fontFamily, bold, italic, underline, imageUrl, uploadedImage, imagePosition, imageWidth]);
 
-  if (showPreview) {
-    const previewList = selectedRecipients.length > 0 ? selectedRecipients : recipients;
-    const previewRecipient = previewList.length > 0 ? previewList[Math.min(previewRecipientIndex, previewList.length - 1)] : null;
+ if (showPreview) {
+  const previewList = selectedRecipients.length > 0 ? selectedRecipients : recipients;
+  const previewRecipient = previewList.length > 0 ? previewList[Math.min(previewRecipientIndex, previewList.length - 1)] : null;
 
-    // Create merge data for preview
-    const previewMergeData = previewRecipient
-      ? createMergeData(previewRecipient)
-      : { name: '[Full Name]', username: '[Username]', email: 'preview@example.com' };
+  // Create merge data for preview
+  const previewMergeData = previewRecipient
+    ? createMergeData(previewRecipient)
+    : { name: '[Full Name]', username: '[Username]', email: 'preview@example.com' };
 
-    // Apply merge tags to subject and content for preview
-    const previewSubject = replaceMergeTags(subject, previewMergeData);
-    const previewHtml = replaceMergeTags(htmlContent, previewMergeData);
+  // Apply merge tags to subject and content for preview
+  const previewSubject = replaceMergeTags(subject, previewMergeData);
+  const previewHtml = replaceMergeTags(htmlContent, previewMergeData);
 
-    // Create a compact version of the HTML for in-app preview so it fits the preview container
-    const compactPreviewHtml = (() => {
-      try {
-        let temp = previewHtml;
-        // Remove the 40px 0 padding on the outer centering td to eliminate top/bottom white space
-        temp = temp.replace(/style="padding: 40px 0;"/g, 'style="padding: 0;"');
-        // Make content padding small for preview (3px instead of user's padding)
-        temp = temp.replace(new RegExp(`style="padding: ${padding}px;"`,'g'), 'style="padding: 3px;"');
-        return temp;
-      } catch (err) {
-        return previewHtml;
+  // Extract just the content from the email HTML (remove table wrappers)
+  const extractContentOnly = () => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(previewHtml, 'text/html');
+      const contentTd = doc.querySelector('table table tr td');
+      if (contentTd) {
+        return contentTd.innerHTML;
       }
-    })();
+      // Fallback: just get the content between the innermost td tags
+      const match = previewHtml.match(/<td style="padding: \d+px;">(.+?)<\/td>\s*<\/tr>\s*<\/table>\s*<\/td>/s);
+      return match ? match[1] : previewHtml;
+    } catch (err) {
+      return previewHtml;
+    }
+  };
 
-    return (
-      <div className={`rounded-lg overflow-hidden mt-40 m-4 md:mt-25 md:ml-70 md:m-10 sm:mt-50 sm:ml-70 p-2 ${previewMode === 'outlook' ? 'bg-gradient-to-br from-blue-100 to-blue-50' : 'bg-gradient-to-br from-gray-100 to-gray-50'}`}>
-        <style>{emailPreviewStyles}</style>
-        {/* Preview Container */}
-        <div className={`bg-white rounded-lg shadow-lg overflow-hidden flex flex-col max-h-[80vh] ${previewMode === 'outlook' ? 'outlook-preview' : 'gmail-preview'}`}>
-          {/* Preview Header with Mode Toggle */}
-          <div className="bg-gray-100 px-4 py-3 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <svg className={`w-5 h-5 ${previewMode === 'outlook' ? 'text-blue-600' : 'text-red-600'}`} fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-                </svg>
-                <span className="text-sm font-semibold text-gray-700">{previewMode === 'outlook' ? 'Outlook Preview' : 'Gmail Preview'}</span>
+  const emailContent = extractContentOnly();
+  const currentDate = new Date().toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 
-                {previewList.length > 0 && (
-                  <select
-                    value={previewRecipientIndex}
-                    onChange={(e) => setPreviewRecipientIndex(Number(e.target.value))}
-                    className="ml-2 px-2 py-1 border border-gray-300 rounded text-sm bg-white"
-                  >
-                    {previewList.map((r, i) => (
-                      <option key={(r.email || '') + i} value={i}>
-                        {r.name || r.username || r.email}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="flex rounded-md bg-gray-50 p-1">
-                  <button
-                    onClick={() => setPreviewMode('gmail')}
-                    className={`px-3 py-1 rounded text-sm ${previewMode === 'gmail' ? 'bg-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    Gmail
-                  </button>
-                  <button
-                    onClick={() => setPreviewMode('outlook')}
-                    className={`px-3 py-1 rounded text-sm ${previewMode === 'outlook' ? 'bg-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    Outlook
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => setShowPreview(false)}
-                  className="flex items-center gap-2 px-3 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-                >
-                  <PenLine className="w-4 h-4" />
-                  Edit
-                </button>
-              </div>
-            </div>
-
-            {/* Recipient Info */}
-            <div className="bg-white p-3 rounded border border-gray-200 text-sm">
-              <div className="font-semibold text-gray-800 mb-2">Preview for:</div>
-              <div className="text-gray-700">
-                <div><strong>From:</strong> noreply@bulky.com</div>
-                <div><strong>To:</strong> {previewRecipient?.email || 'preview@example.com'} {previewRecipient?.name ? `(${previewRecipient.name})` : ''}</div>
-                <div className={`mt-2 p-2 ${previewMode === 'outlook' ? 'bg-blue-50 border-l-4 border-blue-500 text-xs text-blue-800' : 'bg-blue-50 border-l-4 border-blue-500 text-xs text-blue-800'}`}>
-                  ℹ️ This shows how the email will look for <strong>{previewRecipient?.name || previewRecipient?.username || 'this recipient'}</strong> with personalization applied
-                </div>
-              </div>
-            </div>
+  return (
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+        
+        {/* Top Header Bar */}
+        <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowPreview(false)}
+              className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+              title="Close preview"
+            >
+              <X className="w-5 h-5 text-gray-600" />
+            </button>
+            <h3 className="text-lg font-semibold text-gray-800">Email Preview</h3>
           </div>
 
-          {/* Email Content Container */}
-          <div className="flex-1 overflow-y-auto bg-gray-50 p-3">
-            {/* Email Subject Line */}
-            <div className="bg-white p-3 mb-2 border-b border-gray-200">
-              <h3 className={`text-lg font-semibold break-words ${previewMode === 'outlook' ? 'text-blue-800' : 'text-gray-800'}`}>{previewSubject || '(No subject)'}</h3>
-              <div className="text-xs text-gray-500 mt-2">
-                From: noreply@bulky.com  
-                <span className="mx-2">|</span>  
-                {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </div>
-            </div>
-
-            {/* Email Body */}
-            <div className="bg-white rounded p-3">
-              <div className="email-body" style={{ fontFamily: previewMode === 'outlook' ? "'Segoe UI', Tahoma, sans-serif" : undefined }} dangerouslySetInnerHTML={{ __html: compactPreviewHtml }} />
-            </div>
-
-            {/* Merge Tags Used Indicator */}
-            {(previewSubject.includes('{{') || previewHtml.includes('{{')) ? (
-              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                ⚠️ <strong>Note:</strong> Email contains unparsed merge tags. Make sure all recipients have the required fields.
-              </div>
-            ) : previewRecipient ? (
-              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
-                ✓ <strong>Preview Ready:</strong> All merge tags have been applied using data from {previewRecipient.name || previewRecipient.username || 'recipient'}.
-              </div>
-            ) : (
-              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-                ℹ️ <strong>Sample Preview:</strong> Showing example merge tag replacements. Add recipients to see actual personalization.
-              </div>
+          {/* Mode Toggle */}
+          <div className="flex items-center gap-2">
+            {previewList.length > 0 && (
+              <select
+                value={previewRecipientIndex}
+                onChange={(e) => setPreviewRecipientIndex(Number(e.target.value))}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+              >
+                {previewList.map((r, i) => (
+                  <option key={(r.email || '') + i} value={i}>
+                    {r.name || r.username || r.email}
+                  </option>
+                ))}
+              </select>
             )}
+
+            <div className="flex rounded-lg bg-white border border-gray-300 p-1">
+              <button
+                onClick={() => setPreviewMode('gmail')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  previewMode === 'gmail' 
+                    ? 'bg-red-500 text-white' 
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/>
+                  </svg>
+                  Gmail
+                </div>
+              </button>
+              <button
+                onClick={() => setPreviewMode('outlook')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  previewMode === 'outlook' 
+                    ? 'bg-blue-500 text-white' 
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M24 7.479v9.042c0 1.868-1.514 3.479-3.479 3.479h-2.958V6h2.958C22.486 6 24 7.611 24 9.479v-2zM0 13.5c0 3.038 2.462 5.5 5.5 5.5h7v-5h-7c-.551 0-1-.449-1-1s.449-1 1-1h7V7h-7C2.462 7 0 9.462 0 12.5v1z"/>
+                  </svg>
+                  Outlook
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Email Client Interface */}
+        <div className="flex-1 overflow-hidden">
+          {previewMode === 'gmail' ? (
+            // ==================== GMAIL PREVIEW ====================
+            <div className="h-full flex flex-col bg-white">
+              {/* Gmail Header */}
+              <div className="bg-white border-b border-gray-200 px-6 py-3">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <input 
+                      type="text" 
+                      placeholder="Search mail"
+                      className="w-full px-4 py-2 bg-gray-100 rounded-lg text-sm outline-none"
+                      readOnly
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Gmail Inbox View */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Sidebar */}
+                <div className="w-64 bg-white border-r border-gray-200 p-4">
+                  <button className="w-full bg-white hover:bg-gray-50 text-gray-700 px-4 py-3 rounded-2xl shadow-md mb-4 font-medium text-sm flex items-center gap-3">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Compose
+                  </button>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-3 px-4 py-2 bg-red-50 text-red-600 rounded-r-full font-medium text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                      </svg>
+                      <span>Inbox</span>
+                      <span className="ml-auto font-bold">1</span>
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded-r-full text-gray-600 text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                      </svg>
+                      <span>Sent</span>
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded-r-full text-gray-600 text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5h3V8h4v4h3l-5 5z"/>
+                      </svg>
+                      <span>Drafts</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Content */}
+                <div className="flex-1 overflow-y-auto">
+                  {/* Email Thread */}
+                  <div className="bg-white overflow-y-auto h-100">
+                    {/* Email Header */}
+                    <div className="p-6 border-b border-gray-200">
+                      <h1 className="text-2xl font-normal text-gray-900 mb-4">{previewSubject || '(No subject)'}</h1>
+                      
+                      <div className="flex items-start gap-4">
+                        {/* Avatar */}
+                        <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white font-semibold">
+                          {previewRecipient?.name?.charAt(0)?.toUpperCase() || 'B'}
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-900">Bulky </span>
+                                <span className="text-sm text-gray-500">&lt;noreply@bulky.com&gt;</span>
+                              </div>
+                              <div className="text-sm text-gray-600 mt-1">
+                                to {previewRecipient?.name || 'me'} <span className="text-gray-400">&lt;{previewRecipient?.email || 'preview@example.com'}&gt;</span>
+                              </div>
+                            </div>
+                            <div className="text-sm text-gray-500">{currentDate}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Email Body */}
+                    <div className="p-6">
+                      <div 
+                        style={{ 
+                          backgroundColor: bgColor,
+                          padding: `${padding}px`,
+                          border: `${borderWidth}px solid ${borderColor}`,
+                          borderRadius: `${borderRadius}px`,
+                          margin: 0
+                        }}
+                      >
+                        <div 
+                          style={{ 
+                            fontFamily: fontFamily,
+                            color: textColor,
+                            fontSize: `${fontSize}px`,
+                            textAlign: alignment as any,
+                            fontWeight: bold ? 'bold' : 'normal',
+                            fontStyle: italic ? 'italic' : 'normal',
+                            textDecoration: underline ? 'underline' : 'none',
+                            margin: 0,
+                            lineHeight: 1.6
+                          }} 
+                          dangerouslySetInnerHTML={{ __html: emailContent }} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // ==================== OUTLOOK PREVIEW ====================
+            <div className="h-full flex bg-white">
+              {/* Outlook Sidebar */}
+              <div className="w-64 bg-[#0078d4] text-white p-4">
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold mb-4">Outlook</h2>
+                  <button className="w-full bg-white text-[#0078d4] px-4 py-2 rounded hover:bg-gray-100 font-medium text-sm flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    New mail
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center gap-3 px-3 py-2 bg-slate-200 bg-opacity-20 rounded text-slate-900 font-medium text-sm">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                    </svg>
+                    <span>Inbox</span>
+                    <span className="ml-auto">1</span>
+                  </div>
+                  <div className="flex items-center gap-3 px-3 py-2 hover:bg-white hover:bg-opacity-10 rounded hover:text-slate-900 text-sm">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                    <span>Sent Items</span>
+                  </div>
+                  <div className="flex items-center gap-3 px-3 py-2 hover:bg-white hover:bg-opacity-10 rounded hover:text-slate-900 text-sm">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5h3V8h4v4h3l-5 5z"/>
+                    </svg>
+                    <span>Drafts</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Outlook Main Content */}
+              <div className="flex-1 flex flex-col bg-[#f3f6fb]">
+                {/* Outlook Top Bar */}
+                <div className="bg-white border-b border-gray-200 p-4">
+                  <input 
+                    type="text" 
+                    placeholder="Search"
+                    className="w-full px-4 py-2 bg-gray-100 rounded text-sm outline-none"
+                    readOnly
+                  />
+                </div>
+
+                {/* Email Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  <div className="bg-white rounded-lg shadow-sm h-100 overflow-y-auto">
+                    {/* Email Header */}
+                    <div className="p-6 border-b border-gray-200">
+                      <h1 className="text-2xl font-semibold text-gray-900 mb-4">{previewSubject || '(No subject)'}</h1>
+                      
+                      <div className="flex items-start gap-4 mb-4">
+                        {/* Avatar */}
+                        <div className="w-12 h-12 bg-[#0078d4] rounded-full flex items-center justify-center text-white font-semibold text-lg">
+                          {previewRecipient?.name?.charAt(0)?.toUpperCase() || 'B'}
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-semibold text-gray-900">Bulky Email</div>
+                              <div className="text-sm text-gray-600">&lt;noreply@bulky.com&gt;</div>
+                            </div>
+                            <div className="text-sm text-gray-500">{currentDate}</div>
+                          </div>
+                          <div className="text-sm text-gray-600 mt-2">
+                            <span className="font-medium">To:</span> {previewRecipient?.name || 'You'} &lt;{previewRecipient?.email || 'preview@example.com'}&gt;
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Email Body */}
+                    <div className="p-6">
+                      <div 
+                        style={{ 
+                          backgroundColor: bgColor,
+                          padding: `${padding}px`,
+                          border: `${borderWidth}px solid ${borderColor}`,
+                          borderRadius: `${borderRadius}px`,
+                          margin: 0
+                        }}
+                      >
+                        <div 
+                          style={{ 
+                            fontFamily: "'Segoe UI', Tahoma, sans-serif",
+                            color: textColor,
+                            fontSize: `${fontSize}px`,
+                            textAlign: alignment as any,
+                            fontWeight: bold ? 'bold' : 'normal',
+                            fontStyle: italic ? 'italic' : 'normal',
+                            textDecoration: underline ? 'underline' : 'none',
+                            margin: 0,
+                            lineHeight: 1.6
+                          }} 
+                          dangerouslySetInnerHTML={{ __html: emailContent }} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Info Bar */}
+        <div className="bg-blue-50 border-t border-blue-200 px-6 py-3">
+          <div className="flex items-center gap-2 text-sm text-blue-800">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+            <span>
+              Previewing for <strong>{previewRecipient?.name || previewRecipient?.username || previewRecipient?.email || 'recipient'}</strong> with personalization applied
+            </span>
           </div>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   return (
     <Protected>
