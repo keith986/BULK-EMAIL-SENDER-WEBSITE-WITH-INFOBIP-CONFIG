@@ -168,7 +168,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">
+    <div className="sm:mt-21 mt-10 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">
       <ToastContainer 
         position="top-right" 
         autoClose={7000} 

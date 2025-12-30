@@ -185,7 +185,7 @@ export default function Compose () {
   const [italic, setItalic] = useState(false);
   const [underline, setUnderline] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [previewMode, setPreviewMode] = useState<'gmail' | 'outlook'>('gmail');
+  const [previewMode, setPreviewMode] = useState<'gmail' | 'outlook' | 'yahoo'>('gmail');
   const [previewRecipientIndex, setPreviewRecipientIndex] = useState<number>(0);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -221,9 +221,20 @@ export default function Compose () {
   const [showSaveDraftModal, setShowSaveDraftModal] = useState<boolean>(false);
   const [draftName, setDraftName] = useState<string>('');
   
+  // Sender customization states
+  const [senderName, setSenderName] = useState<string>('');
+  const [senderEmail, setSenderEmail] = useState<string>('');
+  const [showSenderModal, setShowSenderModal] = useState<boolean>(false);
+  
   useEffect(() => {
     const uid = user?.uid;
     if (!uid) return;
+    
+    // Load sender preferences from localStorage
+    const savedSenderName = localStorage.getItem(`senderName_${uid}`);
+    const savedSenderEmail = localStorage.getItem(`senderEmail_${uid}`);
+    if (savedSenderName) setSenderName(savedSenderName);
+    if (savedSenderEmail) setSenderEmail(savedSenderEmail);
     
     // Fetch recipients
     setRecipientsLoading(true);
@@ -424,6 +435,29 @@ export default function Compose () {
     setImageUrl('');
     setUploadedImage('');
     toast.info('Image removed from email');
+  }
+
+  // Sender functions
+  const saveSenderPreferences = () => {
+    if (!senderEmail.trim()) {
+      toast.error('Please enter a sender email address');
+      return;
+    }
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(senderEmail)) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    
+    if (user?.uid) {
+      localStorage.setItem(`senderName_${user.uid}`, senderName);
+      localStorage.setItem(`senderEmail_${user.uid}`, senderEmail);
+    }
+    
+    toast.success('Sender preferences saved successfully');
+    setShowSenderModal(false);
   }
 
   // Template functions
@@ -727,7 +761,7 @@ export default function Compose () {
             <div className="flex rounded-lg bg-slate-300 border border-gray-300 p-1">
               <button
                 onClick={() => setPreviewMode('gmail')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   previewMode === 'gmail' 
                     ? 'bg-red-500 text-white' 
                     : 'text-gray-600 hover:bg-gray-100'
@@ -742,7 +776,7 @@ export default function Compose () {
               </button>
               <button
                 onClick={() => setPreviewMode('outlook')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   previewMode === 'outlook' 
                     ? 'bg-blue-500 text-white' 
                     : 'text-gray-600 hover:bg-gray-100'
@@ -753,6 +787,21 @@ export default function Compose () {
                     <path d="M24 7.479v9.042c0 1.868-1.514 3.479-3.479 3.479h-2.958V6h2.958C22.486 6 24 7.611 24 9.479v-2zM0 13.5c0 3.038 2.462 5.5 5.5 5.5h7v-5h-7c-.551 0-1-.449-1-1s.449-1 1-1h7V7h-7C2.462 7 0 9.462 0 12.5v1z"/>
                   </svg>
                   Outlook
+                </div>
+              </button>
+              <button
+                onClick={() => setPreviewMode('yahoo')}
+                className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                  previewMode === 'yahoo' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M22.5 0h-21C.673 0 0 .673 0 1.5v21c0 .827.673 1.5 1.5 1.5h21c.827 0 1.5-.673 1.5-1.5v-21c0-.827-.673-1.5-1.5-1.5zm-8.42 18.375h-2.205v-5.411l-3.955-7.339h2.457l2.657 5.145 2.657-5.145h2.457l-3.955 7.339z"/>
+                  </svg>
+                  Yahoo
                 </div>
               </button>
             </div>
@@ -823,15 +872,15 @@ export default function Compose () {
                       <div className="flex items-start gap-4">
                         {/* Avatar */}
                         <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white font-semibold">
-                          {previewRecipient?.name?.charAt(0)?.toUpperCase() || 'B'}
+                          {(senderName || 'B').charAt(0)?.toUpperCase()}
                         </div>
 
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-gray-900">Bulky </span>
-                                <span className="text-sm text-gray-500">&lt;noreply@bulky.com&gt;</span>
+                                <span className="font-medium text-gray-900">{senderName || 'Bulky'} </span>
+                                <span className="text-sm text-gray-500">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</span>
                               </div>
                               <div className="text-sm text-gray-600 mt-1">
                                 to {previewRecipient?.name || 'me'} <span className="text-gray-400">&lt;{previewRecipient?.email || 'preview@example.com'}&gt;</span>
@@ -874,7 +923,7 @@ export default function Compose () {
                 </div>
               </div>
             </div>
-          ) : (
+          ) : previewMode === 'outlook' ? (
             // ==================== OUTLOOK PREVIEW ====================
             <div className="h-full flex bg-white">
               {/* Outlook Sidebar */}
@@ -934,14 +983,14 @@ export default function Compose () {
                       <div className="flex items-start gap-4 mb-4">
                         {/* Avatar */}
                         <div className="w-12 h-12 bg-[#0078d4] rounded-full flex items-center justify-center text-white font-semibold text-lg">
-                          {previewRecipient?.name?.charAt(0)?.toUpperCase() || 'B'}
+                          {(senderName || 'B').charAt(0)?.toUpperCase()}
                         </div>
 
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
                             <div>
-                              <div className="font-semibold text-gray-900">Bulky</div>
-                              <div className="text-sm text-gray-600">&lt;noreply@bulky.com&gt;</div>
+                              <div className="font-semibold text-gray-900">{senderName || 'Bulky'}</div>
+                              <div className="text-sm text-gray-600">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</div>
                             </div>
                             <div className="text-sm text-gray-500">{currentDate}</div>
                           </div>
@@ -978,6 +1027,156 @@ export default function Compose () {
                           dangerouslySetInnerHTML={{ __html: emailContent }} 
                         />
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // ==================== YAHOO PREVIEW ====================
+            <div className="h-full flex flex-col bg-white">
+              {/* Yahoo Header */}
+              <div className="bg-[#6001d2] text-white px-6 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M22.5 0h-21C.673 0 0 .673 0 1.5v21c0 .827.673 1.5 1.5 1.5h21c.827 0 1.5-.673 1.5-1.5v-21c0-.827-.673-1.5-1.5-1.5zm-8.42 18.375h-2.205v-5.411l-3.955-7.339h2.457l2.657 5.145 2.657-5.145h2.457l-3.955 7.339z"/>
+                  </svg>
+                  <h2 className="text-xl font-bold">Yahoo Mail</h2>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="text" 
+                    placeholder="Search Mail"
+                    className="px-4 py-2 rounded bg-white/20 text-white placeholder-white/70 text-sm outline-none"
+                    readOnly
+                  />
+                </div>
+              </div>
+
+              {/* Yahoo Main Content */}
+              <div className="flex-1 flex overflow-hidden bg-gray-50">
+                {/* Sidebar */}
+                <div className="w-64 bg-white border-r border-gray-200 p-4">
+                  <button className="w-full bg-[#6001d2] hover:bg-[#5001b8] text-white px-4 py-3 rounded-lg mb-4 font-medium text-sm flex items-center justify-center gap-2">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Compose
+                  </button>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-3 px-4 py-2 bg-purple-50 text-purple-700 rounded font-medium text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                      </svg>
+                      <span>Inbox</span>
+                      <span className="ml-auto font-bold">1</span>
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded text-gray-600 text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                      </svg>
+                      <span>Sent</span>
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded text-gray-600 text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5h3V8h4v4h3l-5 5z"/>
+                      </svg>
+                      <span>Draft</span>
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded text-gray-600 text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                      </svg>
+                      <span>Spam</span>
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded text-gray-600 text-sm">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                      </svg>
+                      <span>Trash</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Email View */}
+                <div className="flex-1 overflow-y-auto">
+                  <div className="bg-white m-4 rounded-lg shadow-sm h-100 overflow-y-auto">
+                    {/* Email Header */}
+                    <div className="p-6 border-b border-gray-200">
+                      <div className="flex items-start justify-between mb-4">
+                        <h1 className="text-2xl font-semibold text-gray-900">{previewSubject || '(No subject)'}</h1>
+                        <div className="flex items-center gap-2">
+                          <button className="p-2 hover:bg-gray-100 rounded">
+                            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                            </svg>
+                          </button>
+                          <button className="p-2 hover:bg-gray-100 rounded">
+                            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-start gap-4">
+                        {/* Avatar */}
+                        <div className="w-12 h-12 bg-[#6001d2] rounded-full flex items-center justify-center text-white font-bold text-lg">
+                          {(senderName || 'B').charAt(0)?.toUpperCase()}
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-semibold text-gray-900 text-lg">{senderName || 'Bulky'}</div>
+                              <div className="text-sm text-gray-600">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</div>
+                            </div>
+                            <div className="text-sm text-gray-500">{currentDate}</div>
+                          </div>
+                          <div className="text-sm text-gray-600 mt-2">
+                            <span className="font-medium">To:</span> {previewRecipient?.name || 'me'} &lt;{previewRecipient?.email || 'preview@example.com'}&gt;
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Email Body */}
+                    <div className="p-6">
+                      <div 
+                        style={{ 
+                          backgroundColor: bgColor,
+                          padding: `${padding}px`,
+                          border: `${borderWidth}px solid ${borderColor}`,
+                          borderRadius: `${borderRadius}px`,
+                          margin: 0
+                        }}
+                      >
+                        <div 
+                          style={{ 
+                            fontFamily: fontFamily,
+                            color: textColor,
+                            fontSize: `${fontSize}px`,
+                            textAlign: alignment as any,
+                            fontWeight: bold ? 'bold' : 'normal',
+                            fontStyle: italic ? 'italic' : 'normal',
+                            textDecoration: underline ? 'underline' : 'none',
+                            margin: 0,
+                            lineHeight: 1.6
+                          }} 
+                          dangerouslySetInnerHTML={{ __html: emailContent }} 
+                        />
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="p-4 border-t border-gray-200 flex items-center gap-2">
+                      <button className="px-4 py-2 bg-[#6001d2] text-white rounded hover:bg-[#5001b8] text-sm font-medium">
+                        Reply
+                      </button>
+                      <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-sm font-medium">
+                        Forward
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1021,13 +1220,23 @@ export default function Compose () {
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setShowDraftsModal(true)}
-              className="px-3 sm:px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm"
-            >
-              <FileText className="w-4 h-4" />
-              <span className="hidden sm:inline">My Drafts</span> ({drafts.length})
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowSenderModal(true)}
+                className="px-3 sm:px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 text-sm"
+                title="Set sender email and name"
+              >
+                <PenLine className="w-4 h-4" />
+                <span className="hidden sm:inline">Sender Info</span>
+              </button>
+              <button
+                onClick={() => setShowDraftsModal(true)}
+                className="px-3 sm:px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm"
+              >
+                <FileText className="w-4 h-4" />
+                <span className="hidden sm:inline">My Drafts</span> ({drafts.length})
+              </button>
+            </div>
           </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1231,7 +1440,6 @@ export default function Compose () {
                   {(imageUrl || uploadedImage) && (
                     <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img 
                           src={uploadedImage || imageUrl} 
                           alt="Email preview" 
@@ -1485,7 +1693,9 @@ export default function Compose () {
                           userId: user?.uid, 
                           subject: subject || '', 
                           html: htmlContent, 
-                          recipients: personalizedRecipients 
+                          recipients: personalizedRecipients,
+                          senderName: senderName || 'Bulky',
+                          senderEmail: senderEmail || 'noreply@bulky.com'
                         };
                         const res = await fetch('/api/send', {
                           method: 'POST',
@@ -1561,7 +1771,6 @@ export default function Compose () {
                 {(imageUrl || uploadedImage) && (
                   <div className="border border-gray-200 rounded-lg p-3">
                     <p className="text-xs sm:text-sm font-medium text-gray-700 mb-2">Preview:</p>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img 
                       src={uploadedImage || imageUrl} 
                       alt="Preview" 
@@ -1735,6 +1944,74 @@ export default function Compose () {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Sender Info Modal */}
+        {showSenderModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full mx-4">
+              <h3 className="text-base sm:text-lg font-semibold mb-4">Sender Information</h3>
+              <p className="text-xs sm:text-sm text-gray-600 mb-4">
+                Customize how your name and email appear to recipients
+              </p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                    Sender Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={senderName}
+                    onChange={(e) => setSenderName(e.target.value)}
+                    placeholder="Your Name or Company Name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">This will appear as the "From" name</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                    Sender Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={senderEmail}
+                    onChange={(e) => setSenderEmail(e.target.value)}
+                    placeholder="your-email@example.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">This will appear as the "From" email address</p>
+                </div>
+
+                {senderName && senderEmail && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-xs font-medium text-blue-900 mb-1">Preview:</p>
+                    <p className="text-sm text-blue-800">
+                      <span className="font-semibold">{senderName}</span> &lt;{senderEmail}&gt;
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 justify-end mt-6">
+                <button
+                  onClick={() => {
+                    setShowSenderModal(false);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveSenderPreferences}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm"
+                >
+                  Save Preferences
+                </button>
+              </div>
             </div>
           </div>
         )}

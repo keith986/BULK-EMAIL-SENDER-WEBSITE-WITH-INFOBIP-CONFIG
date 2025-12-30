@@ -387,7 +387,7 @@ const handleSelectPackage = (packageIndex: number) => {
     
     <div className="space-y-4">
       {pendingRequests.length > 0 && (
-  <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200 mt-8">
+  <div className="bg-white rounded-2xl shadow-xl md:p-8 border border-gray-200 mt-8">
     
     
     <div className="space-y-4">
@@ -406,7 +406,7 @@ const handleSelectPackage = (packageIndex: number) => {
               'border-gray-300 bg-gray-50'
             }`}
           >
-            <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center md:justify-between justify-center flex-wrap gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-lg font-bold text-gray-800">{request.packageInfo}</p>
@@ -527,8 +527,8 @@ const handleSelectPackage = (packageIndex: number) => {
 
     {/* Pagination Controls */}
     {pendingRequests.length > PAYMENTS_PER_PAGE && (
-      <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
-        <p className="text-sm text-gray-600">
+      <div className="flex items-center md:justify-between justify-center mt-6 pt-4 border-t border-gray-200">
+        <p className="text-sm text-gray-600 md:block hidden">
           Showing {(paymentPage - 1) * PAYMENTS_PER_PAGE + 1} to {Math.min(paymentPage * PAYMENTS_PER_PAGE, pendingRequests.length)} of {pendingRequests.length} payments
         </p>
         <div className="flex gap-2">
