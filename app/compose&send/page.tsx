@@ -1,6 +1,6 @@
 "use client";
 import Protected from '../_components/Protected';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Eye, PenLine, Send, Users, FileText, Plus, Trash2, Image as ImageIcon, X } from 'lucide-react';
 import { fetchRecipientsFromFirebase, fetchGroupsFromFirebase } from '../_utils/firebase-operations';
 import { getAvailableMergeTags, replaceMergeTags, createMergeData } from '../_utils/merge-tags';
@@ -214,18 +214,51 @@ export default function Compose () {
   const [imageWidth, setImageWidth] = useState<string>('200');
   const [showImageModal, setShowImageModal] = useState<boolean>(false);
   const [uploadedImage, setUploadedImage] = useState<string>('');
+  const [imageLink, setImageLink] = useState<string>(''); 
+  const [imageLinkAlt, setImageLinkAlt] = useState<string>(''); 
   
   // Draft states
   const [drafts, setDrafts] = useState<EmailTemplate[]>([]);
   const [showDraftsModal, setShowDraftsModal] = useState<boolean>(false);
   const [showSaveDraftModal, setShowSaveDraftModal] = useState<boolean>(false);
   const [draftName, setDraftName] = useState<string>('');
-  
+
+  // Link insertion states
+const [showLinkModal, setShowLinkModal] = useState(false);
+const [linkType, setLinkType] = useState<'text' | 'button' | 'image'>('text');
+const [linkUrl, setLinkUrl] = useState('');
+const [linkText, setLinkText] = useState('');
+const [buttonStyle, setButtonStyle] = useState({
+  bgColor: '#3B82F6',
+  textColor: '#FFFFFF',
+  padding: '12px 24px',
+  borderRadius: '8px',
+  fontSize: '16px'
+});
+
+// Autosave states
+const [lastSaved, setLastSaved] = useState<Date | null>(null);
+const [isSaving, setIsSaving] = useState(false);
+const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+
   // Sender customization states
   const [senderName, setSenderName] = useState<string>('');
   const [senderEmail, setSenderEmail] = useState<string>('');
   const [showSenderModal, setShowSenderModal] = useState<boolean>(false);
   
+  // Text formatting modal states
+const [showTextFormatModal, setShowTextFormatModal] = useState(false);
+const [formatType, setFormatType] = useState<'highlight' | 'border' | 'list'>('highlight');
+const [highlightColor, setHighlightColor] = useState('#FFFF00'); // Yellow default
+const [boxStyle, setBoxStyle] = useState({
+  bgColor: '#F3F4F6',
+  borderColor: '#3B82F6',
+  borderWidth: '2px',
+  borderRadius: '8px',
+  padding: '12px'
+});
+const [listStyle, setListStyle] = useState<'bullet' | 'numbered'>('bullet');
+
   useEffect(() => {
     const uid = user?.uid;
     if (!uid) return;
@@ -266,7 +299,7 @@ export default function Compose () {
     }
     
     // Load drafts from localStorage
-    const savedDrafts = localStorage.getItem(`emailDrafts_${uid}`);
+  const savedDrafts = localStorage.getItem(`emailDrafts_${uid}`);
     if (savedDrafts) {
       try {
         const parsed = JSON.parse(savedDrafts);
@@ -432,10 +465,12 @@ export default function Compose () {
   }
 
   const removeImage = () => {
-    setImageUrl('');
-    setUploadedImage('');
-    toast.info('Image removed from email');
-  }
+  setImageUrl('');
+  setUploadedImage('');
+  setImageLink(''); // Clear the link
+  setImageLinkAlt(''); // Clear the alt text
+  toast.info('Image removed from email');
+}
 
   // Sender functions
   const saveSenderPreferences = () => {
@@ -462,25 +497,104 @@ export default function Compose () {
 
   // Template functions
   const loadTemplate = (template: EmailTemplate) => {
-    setText(template.text);
-    setSubject(template.subject);
-    setFontSize(template.fontSize);
-    setTextColor(template.textColor);
-    setBgColor(template.bgColor);
-    setAlignment(template.alignment);
-    setPadding(template.padding);
-    setBorderWidth(template.borderWidth);
-    setBorderColor(template.borderColor);
-    setBorderRadius(template.borderRadius);
-    setFontFamily(template.fontFamily);
-    setBold(template.bold);
-    setItalic(template.italic);
-    setUnderline(template.underline);
-    setImageUrl(template.imageUrl || '');
-    setImagePosition(template.imagePosition || 'top');
-    setImageWidth(template.imageWidth || '200');
-    toast.success(`Template "${template.name}" loaded successfully`);
+  setText(template.text);
+  setSubject(template.subject);
+  setFontSize(template.fontSize);
+  setTextColor(template.textColor);
+  setBgColor(template.bgColor);
+  setAlignment(template.alignment);
+  setPadding(template.padding);
+  setBorderWidth(template.borderWidth);
+  setBorderColor(template.borderColor);
+  setBorderRadius(template.borderRadius);
+  setFontFamily(template.fontFamily);
+  setBold(template.bold);
+  setItalic(template.italic);
+  setUnderline(template.underline);
+  setImageUrl(template.imageUrl || '');
+  setImagePosition(template.imagePosition || 'top');
+  setImageWidth(template.imageWidth || '200');
+  setImageLink(''); // Reset image link when loading template
+  setImageLinkAlt('');
+  toast.success(`Template "${template.name}" loaded successfully`);
+}
+
+  // Autosave function
+const autoSaveDraft = useCallback(() => {
+  if (!autoSaveEnabled || !user?.uid) return;
+  
+  // Don't save if email is empty
+  if (!text.trim() && !subject.trim()) return;
+  
+  setIsSaving(true);
+  
+  try {
+    // Check if autosave draft already exists
+    const autoSaveDraftId = 'autosave_draft';
+    const existingDrafts = [...drafts];
+    const autoSaveIndex = existingDrafts.findIndex(d => d.id === autoSaveDraftId);
+    
+    const autoSaveDraft: EmailTemplate = {
+      id: autoSaveDraftId,
+      name: `🔄 Auto-saved - ${new Date().toLocaleString()}`,
+      subject,
+      text,
+      fontSize,
+      textColor,
+      bgColor,
+      alignment,
+      padding,
+      borderWidth,
+      borderColor,
+      borderRadius,
+      fontFamily,
+      bold,
+      italic,
+      underline,
+      imageUrl: imageUrl || uploadedImage,
+      imagePosition,
+      imageWidth
+    };
+    
+    // Update or add autosave draft
+    if (autoSaveIndex !== -1) {
+      existingDrafts[autoSaveIndex] = autoSaveDraft;
+    } else {
+      existingDrafts.unshift(autoSaveDraft); // Add to beginning
+    }
+    
+    setDrafts(existingDrafts);
+    localStorage.setItem(`emailDrafts_${user.uid}`, JSON.stringify(existingDrafts));
+    
+    setLastSaved(new Date());
+    setIsSaving(false);
+  } catch (error) {
+    console.error('Autosave error:', error);
+    setIsSaving(false);
   }
+}, [
+  autoSaveEnabled,
+  user?.uid,
+  text,
+  subject,
+  fontSize,
+  textColor,
+  bgColor,
+  alignment,
+  padding,
+  borderWidth,
+  borderColor,
+  borderRadius,
+  fontFamily,
+  bold,
+  italic,
+  underline,
+  imageUrl,
+  uploadedImage,
+  imagePosition,
+  imageWidth,
+  drafts
+]);
 
   const saveAsTemplate = () => {
     if (!newTemplateName.trim()) {
@@ -604,6 +718,256 @@ export default function Compose () {
     toast.success('Draft deleted successfully');
   }
 
+// Link insertion helper functions
+const insertTextLink = () => {
+  if (!linkUrl.trim()) {
+    toast.error('Please enter a URL');
+    return;
+  }
+  
+  const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+  if (!textarea) return;
+
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selectedText = text.substring(start, end);
+  
+  const displayText = linkText.trim() || selectedText || linkUrl;
+  const linkHtml = `<a href="${linkUrl}" style="color: #1a73e8; text-decoration: underline;">${displayText}</a>`;
+  
+  const textBefore = text.substring(0, start);
+  const textAfter = text.substring(end);
+  const newText = textBefore + linkHtml + textAfter;
+  
+  setText(newText);
+  
+  setLinkUrl('');
+  setLinkText('');
+  setShowLinkModal(false);
+  toast.success('Text link inserted');
+  
+  setTimeout(() => {
+    textarea.focus();
+  }, 0);
+};
+
+const insertButtonLink = () => {
+  if (!linkUrl.trim()) {
+    toast.error('Please enter a URL');
+    return;
+  }
+  
+  if (!linkText.trim()) {
+    toast.error('Please enter button text');
+    return;
+  }
+  
+  const buttonHtml = `
+<table cellpadding="0" cellspacing="0" border="0" style="margin: 20px 0;">
+  <tr>
+    <td style="border-radius: ${buttonStyle.borderRadius}; background-color: ${buttonStyle.bgColor};">
+      <a href="${linkUrl}" style="display: inline-block; padding: ${buttonStyle.padding}; color: ${buttonStyle.textColor}; font-size: ${buttonStyle.fontSize}; font-weight: bold; text-decoration: none; border-radius: ${buttonStyle.borderRadius};">
+        ${linkText}
+      </a>
+    </td>
+  </tr>
+</table>`.trim();
+  
+  const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+  if (!textarea) return;
+
+  const start = textarea.selectionStart;
+  const textBefore = text.substring(0, start);
+  const textAfter = text.substring(start);
+  const newText = textBefore + '\n' + buttonHtml + '\n' + textAfter;
+  
+  setText(newText);
+  
+  setLinkUrl('');
+  setLinkText('');
+  setShowLinkModal(false);
+  toast.success('Button link inserted');
+  
+  setTimeout(() => {
+    textarea.focus();
+  }, 0);
+};
+
+const insertImageLink = () => {
+  if (!linkUrl.trim()) {
+    toast.error('Please enter a URL');
+    return;
+  }
+  
+  if (!imageUrl && !uploadedImage) {
+    toast.error('Please add an image first');
+    setShowLinkModal(false);
+    setShowImageModal(true);
+    return;
+  }
+  
+  // Store the link URL and alt text
+  setImageLink(linkUrl);
+  setImageLinkAlt(linkText || 'Linked Image');
+  
+  toast.success('Image link configured - image will be clickable');
+  setLinkUrl('');
+  setLinkText('');
+  setShowLinkModal(false);
+};
+
+const openLinkModal = (type: 'text' | 'button' | 'image') => {
+  setLinkType(type);
+  setShowLinkModal(true);
+};
+
+// Format time since last save
+const formatTimeSince = (date: Date) => {
+  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+  
+  if (seconds < 10) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+};
+
+// Text formatting helper functions
+const applyHighlight = () => {
+  const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+  if (!textarea) return;
+
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selectedText = text.substring(start, end);
+  
+  if (!selectedText.trim()) {
+    toast.error('Please select text to highlight');
+    return;
+  }
+  
+  const highlightedText = `<span style="background-color: ${highlightColor}; padding: 2px 4px; border-radius: 3px;">${selectedText}</span>`;
+  
+  const textBefore = text.substring(0, start);
+  const textAfter = text.substring(end);
+  const newText = textBefore + highlightedText + textAfter;
+  
+  setText(newText);
+  setShowTextFormatModal(false);
+  toast.success('Text highlighted successfully');
+  
+  setTimeout(() => {
+    textarea.focus();
+  }, 0);
+};
+
+const applyTextBorder = () => {
+  const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+  if (!textarea) return;
+
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selectedText = text.substring(start, end);
+  
+  if (!selectedText.trim()) {
+    toast.error('Please select text to add border');
+    return;
+  }
+  
+  // Create bordered box HTML that's email-compatible
+  const borderedText = `
+<table cellpadding="0" cellspacing="0" border="0" style="margin: 15px 0;">
+  <tr>
+    <td style="background-color: ${boxStyle.bgColor}; border: ${boxStyle.borderWidth} solid ${boxStyle.borderColor}; border-radius: ${boxStyle.borderRadius}; padding: ${boxStyle.padding};">
+      ${selectedText.replace(/\n/g, '<br>')}
+    </td>
+  </tr>
+</table>`.trim();
+  
+  const textBefore = text.substring(0, start);
+  const textAfter = text.substring(end);
+  const newText = textBefore + '\n' + borderedText + '\n' + textAfter;
+  
+  setText(newText);
+  setShowTextFormatModal(false);
+  toast.success('Text border applied successfully');
+  
+  setTimeout(() => {
+    textarea.focus();
+  }, 0);
+};
+
+const applyList = () => {
+  const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+  if (!textarea) return;
+
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selectedText = text.substring(start, end);
+  
+  if (!selectedText.trim()) {
+    toast.error('Please select text to convert to list');
+    return;
+  }
+  
+  // Split by newlines and filter out empty lines
+  const lines = selectedText.split('\n').filter(line => line.trim());
+  
+  if (lines.length === 0) {
+    toast.error('No valid lines to convert');
+    return;
+  }
+  
+  let listHtml = '';
+  
+  if (listStyle === 'bullet') {
+    listHtml = '<ul style="margin: 10px 0; padding-left: 20px;">\n';
+    lines.forEach(line => {
+      listHtml += `  <li style="margin: 5px 0;">${line.trim()}</li>\n`;
+    });
+    listHtml += '</ul>';
+  } else {
+    listHtml = '<ol style="margin: 10px 0; padding-left: 20px;">\n';
+    lines.forEach(line => {
+      listHtml += `  <li style="margin: 5px 0;">${line.trim()}</li>\n`;
+    });
+    listHtml += '</ol>';
+  }
+  
+  const textBefore = text.substring(0, start);
+  const textAfter = text.substring(end);
+  const newText = textBefore + '\n' + listHtml + '\n' + textAfter;
+  
+  setText(newText);
+  setShowTextFormatModal(false);
+  toast.success(`${listStyle === 'bullet' ? 'Bullet' : 'Numbered'} list created successfully`);
+  
+  setTimeout(() => {
+    textarea.focus();
+  }, 0);
+};
+
+const openTextFormatModal = (type: 'highlight' | 'border' | 'list') => {
+  setFormatType(type);
+  setShowTextFormatModal(true);
+};
+
+// Autosave effect with debouncing
+useEffect(() => {
+  if (!autoSaveEnabled) return;
+  
+  // Debounce autosave by 3 seconds
+  const timeoutId = setTimeout(() => {
+    autoSaveDraft();
+  }, 3000); // Save 3 seconds after user stops typing
+  
+  return () => clearTimeout(timeoutId);
+}, [text, subject, autoSaveDraft, autoSaveEnabled]);
+
+/*
   useEffect(() => {
     const fontWeight = bold ? 'bold' : 'normal';
     const fontStyle = italic ? 'italic' : 'normal';
@@ -661,7 +1025,7 @@ export default function Compose () {
       `;
     }
 
-    const html = `<!DOCTYPE html>
+const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -686,6 +1050,106 @@ export default function Compose () {
 
     setHtmlContent(html);
   }, [text, fontSize, textColor, bgColor, alignment, padding, borderWidth, borderColor, borderRadius, fontFamily, bold, italic, underline, imageUrl, uploadedImage, imagePosition, imageWidth]);
+*/
+
+useEffect(() => {
+  const fontWeight = bold ? 'bold' : 'normal';
+  const fontStyle = italic ? 'italic' : 'normal';
+  const textDecoration = underline ? 'underline' : 'none';
+  const finalImageUrl = uploadedImage || imageUrl;
+
+  let imageHtml = '';
+  if (finalImageUrl) {
+    // Helper function to wrap image in link if imageLink is set
+    const wrapImageWithLink = (imgTag: string) => {
+      if (imageLink) {
+        return `<a href="${imageLink}" style="display: inline-block; text-decoration: none;">${imgTag}</a>`;
+      }
+      return imgTag;
+    };
+
+    if (imagePosition === 'left' || imagePosition === 'right') {
+      const imgTag = `<img src="${finalImageUrl}" alt="${imageLinkAlt || 'Email Image'}" style="width: ${imageWidth}px; height: auto; display: block; border-radius: 8px; ${imageLink ? 'cursor: pointer;' : ''}" />`;
+      const wrappedImg = wrapImageWithLink(imgTag);
+
+      imageHtml = `
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            ${imagePosition === 'left' ? `
+              <td width="${imageWidth}" style="padding-right: 20px;" valign="top">
+                ${wrappedImg}
+              </td>
+              <td style="text-align: ${alignment}; font-size: ${fontSize}px; color: ${textColor}; font-family: ${fontFamily}; font-weight: ${fontWeight}; font-style: ${fontStyle}; text-decoration: ${textDecoration}; line-height: 1.6;" valign="top">
+                ${text.replace(/\n/g, '<br>')}
+              </td>
+            ` : `
+              <td style="text-align: ${alignment}; font-size: ${fontSize}px; color: ${textColor}; font-family: ${fontFamily}; font-weight: ${fontWeight}; font-style: ${fontStyle}; text-decoration: ${textDecoration}; line-height: 1.6;" valign="top">
+                ${text.replace(/\n/g, '<br>')}
+              </td>
+              <td width="${imageWidth}" style="padding-left: 20px;" valign="top">
+                ${wrappedImg}
+              </td>
+            `}
+          </tr>
+        </table>
+      `;
+    } else {
+      const imgTag = `<img src="${finalImageUrl}" alt="${imageLinkAlt || 'Email Image'}" style="max-width: ${imageWidth}px; width: 100%; height: auto; display: inline-block; border-radius: 8px; ${imageLink ? 'cursor: pointer;' : ''}" />`;
+      const wrappedImg = wrapImageWithLink(imgTag);
+
+      const topImage = imagePosition === 'top' ? `
+        <div style="text-align: center; margin-bottom: 20px;">
+          ${wrappedImg}
+        </div>
+      ` : '';
+      
+      const bottomImage = imagePosition === 'bottom' ? `
+        <div style="text-align: center; margin-top: 20px;">
+          ${wrappedImg}
+        </div>
+      ` : '';
+      
+      imageHtml = `
+        ${topImage}
+        <div style="text-align: ${alignment}; font-size: ${fontSize}px; color: ${textColor}; font-family: ${fontFamily}; font-weight: ${fontWeight}; font-style: ${fontStyle}; text-decoration: ${textDecoration}; line-height: 1.6;">
+          ${text.replace(/\n/g, '<br>')}
+        </div>
+        ${bottomImage}
+      `;
+    }
+  } else {
+    imageHtml = `
+      <div style="text-align: ${alignment}; font-size: ${fontSize}px; color: ${textColor}; font-family: ${fontFamily}; font-weight: ${fontWeight}; font-style: ${fontStyle}; text-decoration: ${textDecoration}; line-height: 1.6;">
+        ${text.replace(/\n/g, '<br>')}
+      </div>
+    `;
+  }
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #847e7eff; font-family: ${fontFamily};">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td align="center" style="padding: 40px 0;">
+        <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: ${bgColor}; border: ${borderWidth}px solid ${borderColor}; border-radius: ${borderRadius}px;">
+          <tr>
+            <td style="padding: ${padding}px;">
+              ${imageHtml}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`.trim();
+
+  setHtmlContent(html);
+}, [text, fontSize, textColor, bgColor, alignment, padding, borderWidth, borderColor, borderRadius, fontFamily, bold, italic, underline, imageUrl, uploadedImage, imagePosition, imageWidth, imageLink, imageLinkAlt]);
 
  if (showPreview) {
   const previewList = selectedRecipients.length > 0 ? selectedRecipients : recipients;
@@ -726,29 +1190,29 @@ export default function Compose () {
   });
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
         
         {/* Top Header Bar */}
-        <div className="bg-slate-200 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="bg-slate-200 border-b border-slate-200 px-2 sm:px-4 py-2 sm:py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={() => setShowPreview(false)}
-              className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+              className="p-1 sm:p-2 hover:bg-gray-200 rounded-full transition-colors"
               title="Close preview"
             >
-              <X className="w-5 h-5 text-gray-600" />
+              <X className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
             </button>
-            <h3 className="text-lg font-semibold text-gray-800">Email Preview</h3>
+            <h3 className="text-sm sm:text-lg font-semibold text-gray-800">Preview</h3>
           </div>
 
           {/* Mode Toggle */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             {previewList.length > 0 && (
               <select
                 value={previewRecipientIndex}
                 onChange={(e) => setPreviewRecipientIndex(Number(e.target.value))}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                className="px-2 py-1 sm:px-3 sm:py-2 border border-gray-300 rounded-lg text-xs sm:text-sm bg-white max-w-[120px] sm:max-w-none"
               >
                 {previewList.map((r, i) => (
                   <option key={(r.email || '') + i} value={i}>
@@ -758,50 +1222,50 @@ export default function Compose () {
               </select>
             )}
 
-            <div className="flex rounded-lg bg-slate-300 border border-gray-300 p-1">
+            <div className="flex rounded-lg bg-slate-300 border border-gray-300 p-0.5 sm:p-1">
               <button
                 onClick={() => setPreviewMode('gmail')}
-                className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 py-1 sm:px-3 sm:py-2 rounded-md text-xs font-medium transition-colors ${
                   previewMode === 'gmail' 
                     ? 'bg-red-500 text-white' 
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <div className="flex items-center gap-1">
+                  <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/>
                   </svg>
-                  Gmail
+                  <span className="hidden sm:inline">Gmail</span>
                 </div>
               </button>
               <button
                 onClick={() => setPreviewMode('outlook')}
-                className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 py-1 sm:px-3 sm:py-2 rounded-md text-xs font-medium transition-colors ${
                   previewMode === 'outlook' 
                     ? 'bg-blue-500 text-white' 
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <div className="flex items-center gap-1">
+                  <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M24 7.479v9.042c0 1.868-1.514 3.479-3.479 3.479h-2.958V6h2.958C22.486 6 24 7.611 24 9.479v-2zM0 13.5c0 3.038 2.462 5.5 5.5 5.5h7v-5h-7c-.551 0-1-.449-1-1s.449-1 1-1h7V7h-7C2.462 7 0 9.462 0 12.5v1z"/>
                   </svg>
-                  Outlook
+                  <span className="hidden sm:inline">Outlook</span>
                 </div>
               </button>
               <button
                 onClick={() => setPreviewMode('yahoo')}
-                className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 py-1 sm:px-3 sm:py-2 rounded-md text-xs font-medium transition-colors ${
                   previewMode === 'yahoo' 
                     ? 'bg-purple-600 text-white' 
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <div className="flex items-center gap-1">
+                  <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M22.5 0h-21C.673 0 0 .673 0 1.5v21c0 .827.673 1.5 1.5 1.5h21c.827 0 1.5-.673 1.5-1.5v-21c0-.827-.673-1.5-1.5-1.5zm-8.42 18.375h-2.205v-5.411l-3.955-7.339h2.457l2.657 5.145 2.657-5.145h2.457l-3.955 7.339z"/>
                   </svg>
-                  Yahoo
+                  <span className="hidden sm:inline">Yahoo</span>
                 </div>
               </button>
             </div>
@@ -813,24 +1277,36 @@ export default function Compose () {
           {previewMode === 'gmail' ? (
             // ==================== GMAIL PREVIEW ====================
             <div className="h-full flex flex-col bg-white">
-              {/* Gmail Header */}
-              <div className="bg-white border-b border-gray-200 px-6 py-3">
-                <div className="flex items-center gap-4">
+              {/* Gmail Mobile Header */}
+              <div className="bg-white border-b border-gray-200 px-3 sm:px-6 py-2 sm:py-3">
+                <div className="flex items-center gap-2 sm:gap-4">
+                  {/* Mobile menu button */}
+                  <button className="sm:hidden p-2">
+                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                  </button>
+                  
                   <div className="flex-1">
                     <input 
                       type="text" 
                       placeholder="Search mail"
-                      className="w-full px-4 py-2 bg-gray-100 rounded-lg text-sm outline-none"
+                      className="w-full px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-100 rounded-lg text-xs sm:text-sm outline-none"
                       readOnly
                     />
+                  </div>
+                  
+                  {/* Profile icon on mobile */}
+                  <div className="sm:hidden w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white text-xs font-semibold">
+                    {(senderName || 'B').charAt(0)?.toUpperCase()}
                   </div>
                 </div>
               </div>
 
-              {/* Gmail Inbox View */}
+              {/* Gmail Content - Hide sidebar on mobile */}
               <div className="flex-1 flex overflow-hidden">
-                {/* Sidebar */}
-                <div className="w-64 bg-white border-r border-gray-200 p-4">
+                {/* Sidebar - Hidden on mobile */}
+                <div className="hidden lg:block w-64 bg-white border-r border-gray-200 p-4">
                   <button className="w-full bg-white hover:bg-gray-50 text-gray-700 px-4 py-3 rounded-2xl shadow-md mb-4 font-medium text-sm flex items-center gap-3">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -861,73 +1337,91 @@ export default function Compose () {
                   </div>
                 </div>
 
-                {/* Main Content */}
+                {/* Main Email Content */}
                 <div className="flex-1 overflow-y-auto">
-                  {/* Email Thread */}
-                  <div className="bg-white overflow-y-auto h-100">
+                  <div className="bg-white overflow-y-auto h-full">
+                    {/* Mobile back button */}
+                    <div className="sm:hidden flex items-center gap-3 p-3 border-b border-gray-200">
+                      <button className="p-1">
+                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <div className="flex-1 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                        </svg>
+                        <span className="text-sm font-medium text-gray-700">Inbox</span>
+                      </div>
+                    </div>
+                  <div className="max-w-3xl mx-auto my-6 border border-gray-300 rounded-lg shadow-sm overflow-y-auto h-100">
                     {/* Email Header */}
-                    <div className="p-6 border-b border-gray-200">
-                      <h1 className="text-2xl font-normal text-gray-900 mb-4">{previewSubject || '(No subject)'}</h1>
+                    <div className="p-3 sm:p-6 border-b border-gray-200">
+                      <h1 className="text-lg sm:text-2xl font-normal text-gray-900 mb-3 sm:mb-4">{previewSubject || '(No subject)'}</h1>
                       
-                      <div className="flex items-start gap-4">
+                      <div className="flex items-start gap-2 sm:gap-4">
                         {/* Avatar */}
-                        <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white font-semibold">
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-500 rounded-full flex items-center justify-center text-white font-semibold text-sm sm:text-base flex-shrink-0">
                           {(senderName || 'B').charAt(0)?.toUpperCase()}
                         </div>
 
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-gray-900">{senderName || 'Bulky'} </span>
-                                <span className="text-sm text-gray-500">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                                <span className="font-medium text-gray-900 text-sm sm:text-base">{senderName || 'Bulky'}</span>
+                                <span className="text-xs sm:text-sm text-gray-500 truncate">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</span>
                               </div>
-                              <div className="text-sm text-gray-600 mt-1">
-                                to {previewRecipient?.name || 'me'} <span className="text-gray-400">&lt;{previewRecipient?.email || 'preview@example.com'}&gt;</span>
+                              <div className="text-xs sm:text-sm text-gray-600 mt-1">
+                                to {previewRecipient?.name || 'me'}
                               </div>
                             </div>
-                            <div className="text-sm text-gray-500">{currentDate}</div>
+                            <div className="text-xs sm:text-sm text-gray-500 flex-shrink-0">{currentDate}</div>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     {/* Email Body */}
-                    <div className="p-6">
+                    <div className="p-3 sm:p-6 bg-gray-50">
                       <div 
                         style={{ 
                           backgroundColor: bgColor,
-                          padding: `${padding}px`,
+                          padding: `${Math.max(parseInt(padding) / 2, 12)}px`,
                           border: `${borderWidth}px solid ${borderColor}`,
                           borderRadius: `${borderRadius}px`,
                           margin: 0
                         }}
+                        className="sm:p-[var(--original-padding)]"
                       >
                         <div 
                           style={{ 
                             fontFamily: fontFamily,
                             color: textColor,
-                            fontSize: `${fontSize}px`,
+                            fontSize: `${Math.max(parseInt(fontSize) - 2, 12)}px`,
                             textAlign: alignment as any,
                             fontWeight: bold ? 'bold' : 'normal',
                             fontStyle: italic ? 'italic' : 'normal',
                             textDecoration: underline ? 'underline' : 'none',
                             margin: 0,
-                            lineHeight: 1.6
+                            lineHeight: 1.6,
+                            ['--original-padding' as any]: `${padding}px`
                           }} 
+                          className="sm:text-[var(--original-size)]"
                           dangerouslySetInnerHTML={{ __html: emailContent }} 
                         />
                       </div>
                     </div>
+                  </div>
                   </div>
                 </div>
               </div>
             </div>
           ) : previewMode === 'outlook' ? (
             // ==================== OUTLOOK PREVIEW ====================
-            <div className="h-full flex bg-white">
-              {/* Outlook Sidebar */}
-              <div className="w-64 bg-[#0078d4] text-white p-4">
+            <div className="h-full flex bg-white flex-col sm:flex-row">
+              {/* Outlook Sidebar - Hidden on mobile */}
+              <div className="hidden sm:block w-64 bg-[#0078d4] text-white p-4">
                 <div className="mb-6">
                   <h2 className="text-xl font-semibold mb-4">Outlook</h2>
                   <button className="w-full bg-white text-[#0078d4] px-4 py-2 rounded hover:bg-gray-100 font-medium text-sm flex items-center justify-center gap-2">
@@ -963,8 +1457,25 @@ export default function Compose () {
 
               {/* Outlook Main Content */}
               <div className="flex-1 flex flex-col bg-[#f3f6fb]">
-                {/* Outlook Top Bar */}
-                <div className="bg-white border-b border-gray-200 p-4">
+                {/* Mobile Header Bar */}
+                <div className="sm:hidden bg-[#0078d4] text-white px-3 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button className="p-1">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                      </svg>
+                    </button>
+                    <h2 className="text-lg font-semibold">Outlook</h2>
+                  </div>
+                  <button className="p-1">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Outlook Top Bar - Desktop */}
+                <div className="hidden sm:block bg-white border-b border-gray-200 p-4">
                   <input 
                     type="text" 
                     placeholder="Search"
@@ -974,27 +1485,38 @@ export default function Compose () {
                 </div>
 
                 {/* Email Content */}
-                <div className="flex-1 overflow-y-auto p-6">
-                  <div className="bg-white rounded-lg shadow-sm h-100 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto p-2 sm:p-6">
+                  <div className="bg-white rounded-lg shadow-sm h-full overflow-y-auto">
+                    {/* Mobile back navigation */}
+                    <div className="sm:hidden flex items-center gap-3 p-3 border-b border-gray-200 bg-[#0078d4] text-white">
+                      <button className="p-1">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <span className="text-sm font-medium">Back to Inbox</span>
+                    </div>
+                    
+                    <div className="max-w-3xl mx-auto my-6 border border-gray-300 rounded-lg shadow-sm overflow-y-auto h-100">
                     {/* Email Header */}
-                    <div className="p-6 border-b border-gray-200">
-                      <h1 className="text-2xl font-semibold text-gray-900 mb-4">{previewSubject || '(No subject)'}</h1>
+                    <div className="p-3 sm:p-6 border-b border-gray-200">
+                      <h1 className="text-lg sm:text-2xl font-semibold text-gray-900 mb-3 sm:mb-4">{previewSubject || '(No subject)'}</h1>
                       
-                      <div className="flex items-start gap-4 mb-4">
+                      <div className="flex items-start gap-2 sm:gap-4 mb-4">
                         {/* Avatar */}
-                        <div className="w-12 h-12 bg-[#0078d4] rounded-full flex items-center justify-center text-white font-semibold text-lg">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#0078d4] rounded-full flex items-center justify-center text-white font-semibold text-base sm:text-lg flex-shrink-0">
                           {(senderName || 'B').charAt(0)?.toUpperCase()}
                         </div>
 
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-semibold text-gray-900">{senderName || 'Bulky'}</div>
-                              <div className="text-sm text-gray-600">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-0">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-gray-900 text-sm sm:text-base">{senderName || 'Bulky'}</div>
+                              <div className="text-xs sm:text-sm text-gray-600 truncate">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</div>
                             </div>
-                            <div className="text-sm text-gray-500">{currentDate}</div>
+                            <div className="text-xs sm:text-sm text-gray-500">{currentDate}</div>
                           </div>
-                          <div className="text-sm text-gray-600 mt-2">
+                          <div className="text-xs sm:text-sm text-gray-600 mt-2">
                             <span className="font-medium">To:</span> {previewRecipient?.name || 'You'} &lt;{previewRecipient?.email || 'preview@example.com'}&gt;
                           </div>
                         </div>
@@ -1002,31 +1524,55 @@ export default function Compose () {
                     </div>
 
                     {/* Email Body */}
-                    <div className="p-6">
+                    <div className="p-3 sm:p-6">
                       <div 
                         style={{ 
                           backgroundColor: bgColor,
-                          padding: `${padding}px`,
+                          padding: `${Math.max(parseInt(padding) / 2, 12)}px`,
                           border: `${borderWidth}px solid ${borderColor}`,
                           borderRadius: `${borderRadius}px`,
                           margin: 0
                         }}
+                        className="sm:p-[var(--original-padding)]"
                       >
                         <div 
                           style={{ 
                             fontFamily: "'Segoe UI', Tahoma, sans-serif",
                             color: textColor,
-                            fontSize: `${fontSize}px`,
+                            fontSize: `${Math.max(parseInt(fontSize) - 2, 12)}px`,
                             textAlign: alignment as any,
                             fontWeight: bold ? 'bold' : 'normal',
                             fontStyle: italic ? 'italic' : 'normal',
                             textDecoration: underline ? 'underline' : 'none',
                             margin: 0,
-                            lineHeight: 1.6
+                            lineHeight: 1.6,
+                            ['--original-padding' as any]: `${padding}px`
                           }} 
+                          className="sm:text-[var(--original-size)]"
                           dangerouslySetInnerHTML={{ __html: emailContent }} 
                         />
                       </div>
+                    </div>
+                    </div>
+
+                    {/* Mobile action buttons */}
+                    <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 flex gap-2">
+                      <button className="flex-1 px-4 py-2 bg-[#0078d4] text-white rounded text-sm font-medium flex items-center justify-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                        </svg>
+                        Reply
+                      </button>
+                      <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded text-sm font-medium">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                      </button>
+                      <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded text-sm font-medium">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1036,18 +1582,30 @@ export default function Compose () {
             // ==================== YAHOO PREVIEW ====================
             <div className="h-full flex flex-col bg-white">
               {/* Yahoo Header */}
-              <div className="bg-[#6001d2] text-white px-6 py-3 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+              <div className="bg-[#6001d2] text-white px-3 sm:px-6 py-2 sm:py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2 sm:gap-4">
+                  {/* Mobile menu */}
+                  <button className="sm:hidden p-1">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                  </button>
+                  
+                  <svg className="w-6 h-6 sm:w-8 sm:h-8" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M22.5 0h-21C.673 0 0 .673 0 1.5v21c0 .827.673 1.5 1.5 1.5h21c.827 0 1.5-.673 1.5-1.5v-21c0-.827-.673-1.5-1.5-1.5zm-8.42 18.375h-2.205v-5.411l-3.955-7.339h2.457l2.657 5.145 2.657-5.145h2.457l-3.955 7.339z"/>
                   </svg>
-                  <h2 className="text-xl font-bold">Yahoo Mail</h2>
+                  <h2 className="text-base sm:text-xl font-bold hidden sm:block">Yahoo Mail</h2>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <button className="sm:hidden p-1">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </button>
                   <input 
                     type="text" 
                     placeholder="Search Mail"
-                    className="px-4 py-2 rounded bg-white/20 text-white placeholder-white/70 text-sm outline-none"
+                    className="hidden sm:block px-4 py-2 rounded bg-white/20 text-white placeholder-white/70 text-sm outline-none"
                     readOnly
                   />
                 </div>
@@ -1055,8 +1613,8 @@ export default function Compose () {
 
               {/* Yahoo Main Content */}
               <div className="flex-1 flex overflow-hidden bg-gray-50">
-                {/* Sidebar */}
-                <div className="w-64 bg-white border-r border-gray-200 p-4">
+                {/* Sidebar - Hidden on mobile */}
+                <div className="hidden lg:block w-64 bg-white border-r border-gray-200 p-4">
                   <button className="w-full bg-[#6001d2] hover:bg-[#5001b8] text-white px-4 py-3 rounded-lg mb-4 font-medium text-sm flex items-center justify-center gap-2">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1101,40 +1659,51 @@ export default function Compose () {
 
                 {/* Main Email View */}
                 <div className="flex-1 overflow-y-auto">
-                  <div className="bg-white m-4 rounded-lg shadow-sm h-100 overflow-y-auto">
+                  <div className="bg-white m-2 sm:m-4 rounded-lg shadow-sm">
+                    {/* Mobile back navigation */}
+                    <div className="sm:hidden flex items-center gap-3 p-3 border-b border-gray-200 bg-purple-50">
+                      <button className="p-1">
+                        <svg className="w-5 h-5 text-[#6001d2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <span className="text-sm font-medium text-[#6001d2]">Inbox</span>
+                    </div>
+
+                  <div className="max-w-3xl mx-auto my-6 border border-gray-300 rounded-lg shadow-sm overflow-y-auto h-100">
                     {/* Email Header */}
-                    <div className="p-6 border-b border-gray-200">
-                      <div className="flex items-start justify-between mb-4">
-                        <h1 className="text-2xl font-semibold text-gray-900">{previewSubject || '(No subject)'}</h1>
-                        <div className="flex items-center gap-2">
-                          <button className="p-2 hover:bg-gray-100 rounded">
-                            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="p-3 sm:p-6 border-b border-gray-200">
+                      <div className="flex items-start justify-between mb-3 sm:mb-4">
+                        <h1 className="text-lg sm:text-2xl font-semibold text-gray-900 flex-1 pr-2">{previewSubject || '(No subject)'}</h1>
+                        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                          <button className="p-1.5 sm:p-2 hover:bg-gray-100 rounded">
+                            <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                             </svg>
                           </button>
-                          <button className="p-2 hover:bg-gray-100 rounded">
-                            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <button className="p-1.5 sm:p-2 hover:bg-gray-100 rounded">
+                            <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
                           </button>
                         </div>
                       </div>
                       
-                      <div className="flex items-start gap-4">
+                      <div className="flex items-start gap-2 sm:gap-4">
                         {/* Avatar */}
-                        <div className="w-12 h-12 bg-[#6001d2] rounded-full flex items-center justify-center text-white font-bold text-lg">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#6001d2] rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg flex-shrink-0">
                           {(senderName || 'B').charAt(0)?.toUpperCase()}
                         </div>
 
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-semibold text-gray-900 text-lg">{senderName || 'Bulky'}</div>
-                              <div className="text-sm text-gray-600">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-0">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-gray-900 text-sm sm:text-lg">{senderName || 'Bulky'}</div>
+                              <div className="text-xs sm:text-sm text-gray-600 truncate">&lt;{senderEmail || 'noreply@bulky.com'}&gt;</div>
                             </div>
-                            <div className="text-sm text-gray-500">{currentDate}</div>
+                            <div className="text-xs sm:text-sm text-gray-500">{currentDate}</div>
                           </div>
-                          <div className="text-sm text-gray-600 mt-2">
+                          <div className="text-xs sm:text-sm text-gray-600 mt-2">
                             <span className="font-medium">To:</span> {previewRecipient?.name || 'me'} &lt;{previewRecipient?.email || 'preview@example.com'}&gt;
                           </div>
                         </div>
@@ -1142,42 +1711,47 @@ export default function Compose () {
                     </div>
 
                     {/* Email Body */}
-                    <div className="p-6">
+                    <div className="p-3 sm:p-6">
                       <div 
                         style={{ 
                           backgroundColor: bgColor,
-                          padding: `${padding}px`,
+                          padding: `${Math.max(parseInt(padding) / 2, 12)}px`,
                           border: `${borderWidth}px solid ${borderColor}`,
                           borderRadius: `${borderRadius}px`,
                           margin: 0
                         }}
+                        className="sm:p-[var(--original-padding)]"
                       >
                         <div 
                           style={{ 
                             fontFamily: fontFamily,
                             color: textColor,
-                            fontSize: `${fontSize}px`,
+                            fontSize: `${Math.max(parseInt(fontSize) - 2, 12)}px`,
                             textAlign: alignment as any,
                             fontWeight: bold ? 'bold' : 'normal',
                             fontStyle: italic ? 'italic' : 'normal',
                             textDecoration: underline ? 'underline' : 'none',
                             margin: 0,
-                            lineHeight: 1.6
+                            lineHeight: 1.6,
+                            ['--original-padding' as any]: `${padding}px`
                           }} 
+                          className="sm:text-[var(--original-size)]"
                           dangerouslySetInnerHTML={{ __html: emailContent }} 
                         />
                       </div>
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="p-4 border-t border-gray-200 flex items-center gap-2">
-                      <button className="px-4 py-2 bg-[#6001d2] text-white rounded hover:bg-[#5001b8] text-sm font-medium">
+                    <div className="p-3 sm:p-4 border-t border-gray-200 flex flex-wrap items-center gap-2">
+                      <button className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-[#6001d2] text-white rounded hover:bg-[#5001b8] text-xs sm:text-sm font-medium">
                         Reply
                       </button>
-                      <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-sm font-medium">
+                      <button className="flex-1 sm:flex-none px-3 sm:px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-xs sm:text-sm font-medium">
                         Forward
                       </button>
                     </div>
+                  </div>
+
                   </div>
                 </div>
               </div>
@@ -1186,13 +1760,13 @@ export default function Compose () {
         </div>
 
         {/* Bottom Info Bar */}
-        <div className="bg-slate-200 border-t border-blue-200 px-6 py-3">
-          <div className="flex items-center gap-2 text-sm text-blue-800">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+        <div className="bg-slate-200 border-t border-blue-200 px-3 sm:px-6 py-2 sm:py-3">
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-blue-800">
+            <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
             </svg>
-            <span>
-              Previewing for <strong>{previewRecipient?.name || previewRecipient?.username || previewRecipient?.email || 'recipient'}</strong> with personalization applied
+            <span className="line-clamp-2">
+              Previewing for <strong className="font-semibold">{previewRecipient?.name || previewRecipient?.username || previewRecipient?.email || 'recipient'}</strong> with personalization
             </span>
           </div>
         </div>
@@ -1419,7 +1993,56 @@ export default function Compose () {
                   <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Email Content</label>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 mb-3">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-700">Email Content Editor</h2>
+                     <div className="flex items-center gap-3">
+    {/* Autosave Toggle */}
+    <div className="flex items-center gap-2">
+      <label className="relative inline-flex items-center cursor-pointer">
+        <input
+          type="checkbox"
+          checked={autoSaveEnabled}
+          onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+          className="sr-only peer"
+        />
+        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+      </label>
+      <span className="text-xs text-gray-600 hidden sm:inline">Autosave</span>
+    </div>
+
+    {/* Save Status */}
+    {autoSaveEnabled && (
+      <div className="flex items-center gap-2 text-xs">
+        {isSaving ? (
+          <>
+            <svg className="animate-spin h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span className="text-gray-600">Saving...</span>
+          </>
+        ) : lastSaved ? (
+          <>
+            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-gray-600">
+              Saved {formatTimeSince(lastSaved)}
+            </span>
+          </>
+        ) : null}
+      </div>
+    )}
+                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
+                       {/* Quick Link Button*/}
+                        <button
+                         onClick={() => openLinkModal('text')}
+                         className="flex-1 sm:flex-none flex items-center gap-2 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs sm:text-sm"
+                        >
+                         <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                         </svg>
+                          Add Link
+                        </button>
                       <button
                         onClick={() => setShowImageModal(true)}
                         className="flex-1 sm:flex-none flex items-center gap-2 px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs sm:text-sm"
@@ -1435,29 +2058,51 @@ export default function Compose () {
                         Preview
                       </button>
                     </div>
-                  </div>
+                     </div>
                   
                   {(imageUrl || uploadedImage) && (
-                    <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <img 
-                          src={uploadedImage || imageUrl} 
-                          alt="Email preview" 
-                          className="w-12 h-12 sm:w-16 sm:h-16 object-cover rounded"
-                        />
-                        <div>
-                          <p className="text-xs sm:text-sm font-medium text-gray-700">Image added</p>
-                          <p className="text-xs text-gray-500">Position: {imagePosition} | Width: {imageWidth}px</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={removeImage}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded"
-                        title="Remove image"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
+  <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
+    <div className="flex items-center gap-3">
+      <img 
+        src={uploadedImage || imageUrl} 
+        alt="Email preview" 
+        className="w-12 h-12 sm:w-16 sm:h-16 object-cover rounded"
+      />
+      <div>
+        <p className="text-xs sm:text-sm font-medium text-gray-700">Image added</p>
+        <p className="text-xs text-gray-500">Position: {imagePosition} | Width: {imageWidth}px</p>
+        {/* ADD THIS NEW LINE: */}
+        {imageLink && (
+          <div className="flex items-center gap-1 mt-1">
+            <svg className="w-3 h-3 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            <p className="text-xs text-blue-600 font-medium">
+              Links to: {imageLink}
+            </p>
+                   <button
+                   onClick={() => {
+                   setImageLink('');
+                   setImageLinkAlt('');
+                   toast.info('Image link removed');
+                   }}
+                   className="ml-2 text-red-500 hover:text-red-700"
+                   title="Remove link"
+                   >
+                    ✕
+                  </button>
+                  </div>
+                  )}
+                  </div>
+                  </div>
+                  <button
+                  onClick={removeImage}
+                  className="p-2 text-red-500 hover:bg-red-50 rounded"
+                  title="Remove image"
+                  >
+                   <X className="w-4 h-4" />
+                  </button>
+                  </div>
                   )}
                   
                   <textarea
@@ -1470,7 +2115,7 @@ export default function Compose () {
 
                   {/* Merge Tags Helper */}
                   <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-xs sm:text-sm font-medium text-blue-900 mb-2">📝 Personalization Tags:</p>
+                    <p className="text-xs sm:text-sm font-medium text-blue-900 mb-2">Personalization Tags:</p>
                     <div className="flex flex-wrap gap-2">
                       {getAvailableMergeTags().filter(tag => ['{{name}}', '{{email}}', '{{username}}'].includes(tag.tag)).map((tag) => (
                         <button
@@ -1491,8 +2136,22 @@ export default function Compose () {
                         </button>
                       ))}
                     </div>
-                    <p className="text-xs text-blue-700 mt-2">💡 Tip: choose name if exists, otherwise username</p>
                   </div>
+
+                  {/* Autosave Info */}
+                  {autoSaveEnabled && (
+  <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+    <div className="flex items-start gap-2">
+      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+      </svg>
+      <div className="text-xs text-blue-800">
+        <strong>Autosave Active:</strong> Your work is being saved automatically. 
+        You can disable autosave using the toggle above.
+      </div>
+    </div>
+  </div>
+                  )}
                 </div>
 
                 {/* Formatting Toolbar */}
@@ -1539,6 +2198,133 @@ export default function Compose () {
                     >
                       <AlignRight className="w-3 h-3 sm:w-4 sm:h-4" />
                     </button>
+
+                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
+
+{/* Insert Link Dropdown */}
+<div className="relative group">
+  <button 
+    onClick={() => openLinkModal('text')}
+    className="p-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-1"
+    title="Insert Link"
+  >
+    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+    </svg>
+    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  </button>
+  
+  {/* Dropdown Menu */}
+  <div className="hidden group-hover:block absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[180px]">
+    <button
+      onClick={() => openLinkModal('text')}
+      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 text-sm"
+    >
+      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+      </svg>
+      <div>
+        <p className="font-medium text-gray-900">Text Link</p>
+        <p className="text-xs text-gray-500">Insert clickable text</p>
+      </div>
+    </button>
+    
+    <button
+      onClick={() => openLinkModal('button')}
+      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 text-sm border-t border-gray-100"
+    >
+      <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+      </svg>
+      <div>
+        <p className="font-medium text-gray-900">Button Link</p>
+        <p className="text-xs text-gray-500">Create CTA button</p>
+      </div>
+    </button>
+    
+    <button
+      onClick={() => openLinkModal('image')}
+      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 text-sm border-t border-gray-100"
+    >
+      <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+      <div>
+        <p className="font-medium text-gray-900">Image Link</p>
+        <p className="text-xs text-gray-500">Make image clickable</p>
+      </div>
+    </button>
+  </div>
+</div>
+
+<div className="w-px h-6 bg-gray-300 mx-1"></div>
+
+{/* Text Formatting Dropdown */}
+<div className="relative group">
+  <button 
+    onClick={() => openTextFormatModal('highlight')}
+    className="p-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-1"
+    title="Text Formatting"
+  >
+    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+    </svg>
+    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  </button>
+  
+  {/* Dropdown Menu */}
+  <div className="hidden group-hover:block absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[200px]">
+    <button
+      onClick={() => openTextFormatModal('highlight')}
+      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 text-sm"
+    >
+      <div className="w-8 h-8 bg-yellow-200 rounded flex items-center justify-center">
+        <svg className="w-4 h-4 text-yellow-800" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M17.25 3h-10.5C5.78 3 5 3.78 5 4.75v14.5c0 .97.78 1.75 1.75 1.75h10.5c.97 0 1.75-.78 1.75-1.75V4.75C19 3.78 18.22 3 17.25 3z"/>
+        </svg>
+      </div>
+      <div>
+        <p className="font-medium text-gray-900">Highlight Text</p>
+        <p className="text-xs text-gray-500">Add background color</p>
+      </div>
+    </button>
+    
+    <button
+      onClick={() => openTextFormatModal('border')}
+      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 text-sm border-t border-gray-100"
+    >
+      <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
+        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+        </svg>
+      </div>
+      <div>
+        <p className="font-medium text-gray-900">Add Border Box</p>
+        <p className="text-xs text-gray-500">Wrap in bordered box</p>
+      </div>
+    </button>
+    
+    <button
+      onClick={() => openTextFormatModal('list')}
+      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 text-sm border-t border-gray-100"
+    >
+      <div className="w-8 h-8 bg-green-100 rounded flex items-center justify-center">
+        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+        </svg>
+      </div>
+      <div>
+        <p className="font-medium text-gray-900">Create List</p>
+        <p className="text-xs text-gray-500">Bullet or numbered</p>
+      </div>
+    </button>
+  </div>
+</div>
+
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1665,11 +2451,11 @@ export default function Compose () {
                 <div className="sm:col-span-2 mt-4">
                   <div className="flex flex-col sm:flex-row gap-2">
                     <button
-                      onClick={() => setShowSaveDraftModal(true)}
-                      className="w-full sm:w-auto px-4 py-2 sm:py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex items-center justify-center gap-2 cursor-pointer text-sm sm:text-base"
+                    onClick={() => setShowSaveDraftModal(true)}
+                    className="w-full sm:w-auto px-4 py-2 sm:py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex items-center justify-center gap-2 cursor-pointer text-sm sm:text-base"
                     >
-                      <FileText className="w-4 h-4" />
-                      Save as Draft
+                     <FileText className="w-4 h-4" />
+                      {autoSaveEnabled ? 'Save as Named Draft' : 'Save as Draft'}
                     </button>
                     <button onClick={async () => {
                       try {
@@ -1911,39 +2697,55 @@ export default function Compose () {
               </div>
               
               {drafts.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileText className="w-10 h-10 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm sm:text-base text-gray-500">No drafts saved yet</p>
-                  <p className="text-xs sm:text-sm text-gray-400 mt-1">Save your work in progress to continue later</p>
-                </div>
+  <div className="text-center py-8">
+    <FileText className="w-10 h-10 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
+    <p className="text-sm sm:text-base text-gray-500">No drafts saved yet</p>
+    <p className="text-xs sm:text-sm text-gray-400 mt-1">Save your work in progress to continue later</p>
+  </div>
               ) : (
-                <div className="space-y-3">
-                  {drafts.map((draft) => (
-                    <div
-                      key={draft.id}
-                      className="flex items-start justify-between p-3 sm:p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex-1">
-                        <button
-                          onClick={() => loadDraft(draft)}
-                          className="text-left w-full"
-                        >
-                          <p className="font-medium text-gray-800">{draft.name}</p>
-                          <p className="text-sm text-gray-600 mt-1 truncate">{draft.subject || 'No subject'}</p>
-                          <p className="text-xs text-gray-400 mt-1 line-clamp-2">{draft.text}</p>
-                        </button>
-                      </div>
-                      <button
-                        onClick={() => deleteDraft(draft.id)}
-                        className="ml-3 p-2 text-red-500 hover:bg-red-50 rounded"
-                        title="Delete draft"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+  <div className="space-y-3">
+    {drafts.map((draft) => {
+      const isAutosave = draft.id === 'autosave_draft';
+      
+      return (
+        <div
+          key={draft.id}
+          className={`flex items-start justify-between p-3 sm:p-4 border rounded-lg hover:bg-gray-50 ${
+            isAutosave ? 'border-blue-300 bg-blue-50' : 'border-gray-200'
+          }`}
+        >
+          <div className="flex-1">
+            <button
+              onClick={() => loadDraft(draft)}
+              className="text-left w-full"
+            >
+              <div className="flex items-center gap-2">
+                <p className={`font-medium ${isAutosave ? 'text-blue-800' : 'text-gray-800'}`}>
+                  {draft.name}
+                </p>
+                {isAutosave && (
+                  <span className="px-2 py-0.5 bg-blue-200 text-blue-800 text-xs rounded-full">
+                    Auto-saved
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-600 mt-1 truncate">{draft.subject || 'No subject'}</p>
+              <p className="text-xs text-gray-400 mt-1 line-clamp-2">{draft.text}</p>
+            </button>
+          </div>
+          <button
+            onClick={() => deleteDraft(draft.id)}
+            className="ml-3 p-2 text-red-500 hover:bg-red-50 rounded"
+            title="Delete draft"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      );
+    })}
+  </div>
               )}
+
             </div>
           </div>
         )}
@@ -2015,7 +2817,629 @@ export default function Compose () {
             </div>
           </div>
         )}
-        
+
+        {/* Universal Link Modal */}
+{showLinkModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-lg p-4 sm:p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          {linkType === 'text' && (
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+            </div>
+          )}
+          {linkType === 'button' && (
+            <div className="p-2 bg-green-100 rounded-lg">
+              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+              </svg>
+            </div>
+          )}
+          {linkType === 'image' && (
+            <div className="p-2 bg-purple-100 rounded-lg">
+              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+          )}
+          <div>
+            <h3 className="text-base sm:text-lg font-semibold">
+              {linkType === 'text' && 'Insert Text Link'}
+              {linkType === 'button' && 'Create Button Link'}
+              {linkType === 'image' && 'Add Image Link'}
+            </h3>
+            <p className="text-xs text-gray-500">
+              {linkType === 'text' && 'Make text clickable with a hyperlink'}
+              {linkType === 'button' && 'Create a call-to-action button'}
+              {linkType === 'image' && 'Make your image clickable'}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => {
+            setShowLinkModal(false);
+            setLinkUrl('');
+            setLinkText('');
+          }}
+          className="text-gray-400 hover:text-gray-600"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      
+      <div className="space-y-4">
+        {/* Link URL - Common for all types */}
+        <div>
+          <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+            Link URL <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="url"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            placeholder="https://example.com"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            autoFocus
+          />
+          <p className="text-xs text-gray-500 mt-1">Where should this link go?</p>
+        </div>
+
+        {/* Text Link Specific */}
+        {linkType === 'text' && (
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+              Link Text (optional)
+            </label>
+            <input
+              type="text"
+              value={linkText}
+              onChange={(e) => setLinkText(e.target.value)}
+              placeholder="Click here"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Leave empty to use selected text or URL as display text
+            </p>
+          </div>
+        )}
+
+        {/* Button Link Specific */}
+        {linkType === 'button' && (
+          <>
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                Button Text <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={linkText}
+                onChange={(e) => setLinkText(e.target.value)}
+                placeholder="Shop Now"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Button Color</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="color" 
+                    value={buttonStyle.bgColor}
+                    onChange={(e) => setButtonStyle({...buttonStyle, bgColor: e.target.value})}
+                    className="w-12 h-9 border border-gray-300 rounded cursor-pointer"
+                  />
+                  <input 
+                    type="text" 
+                    value={buttonStyle.bgColor}
+                    onChange={(e) => setButtonStyle({...buttonStyle, bgColor: e.target.value})}
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Text Color</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="color" 
+                    value={buttonStyle.textColor}
+                    onChange={(e) => setButtonStyle({...buttonStyle, textColor: e.target.value})}
+                    className="w-12 h-9 border border-gray-300 rounded cursor-pointer"
+                  />
+                  <input 
+                    type="text" 
+                    value={buttonStyle.textColor}
+                    onChange={(e) => setButtonStyle({...buttonStyle, textColor: e.target.value})}
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Padding</label>
+                <input 
+                  type="text" 
+                  value={buttonStyle.padding}
+                  onChange={(e) => setButtonStyle({...buttonStyle, padding: e.target.value})}
+                  placeholder="12px 24px"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Border Radius</label>
+                <input 
+                  type="text" 
+                  value={buttonStyle.borderRadius}
+                  onChange={(e) => setButtonStyle({...buttonStyle, borderRadius: e.target.value})}
+                  placeholder="8px"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-xs"
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Image Link Specific */}
+        {linkType === 'image' && (
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+              Alt Text (optional)
+            </label>
+            <input
+              type="text"
+              value={linkText}
+              onChange={(e) => setLinkText(e.target.value)}
+              placeholder="Describe the image"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Accessibility text for screen readers
+            </p>
+          </div>
+        )}
+
+        {/* Preview */}
+        {linkUrl && (
+          <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <p className="text-xs font-medium text-gray-700 mb-2">Preview:</p>
+            
+            {linkType === 'text' && (
+              <a 
+                href={linkUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-blue-600 underline text-sm"
+              >
+                {linkText || 'Click here'}
+              </a>
+            )}
+            
+            {linkType === 'button' && linkText && (
+              <table cellPadding="0" cellSpacing="0" border={0}>
+                <tbody>
+                  <tr>
+                    <td style={{ 
+                      borderRadius: buttonStyle.borderRadius, 
+                      backgroundColor: buttonStyle.bgColor 
+                    }}>
+                      <a 
+                        href={linkUrl}
+                        style={{
+                          display: 'inline-block',
+                          padding: buttonStyle.padding,
+                          color: buttonStyle.textColor,
+                          fontSize: buttonStyle.fontSize,
+                          fontWeight: 'bold',
+                          textDecoration: 'none',
+                          borderRadius: buttonStyle.borderRadius
+                        }}
+                      >
+                        {linkText}
+                      </a>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+            
+            {linkType === 'image' && (imageUrl || uploadedImage) && (
+              <a href={linkUrl} target="_blank" rel="noopener noreferrer">
+                <img 
+                  src={uploadedImage || imageUrl} 
+                  alt={linkText || 'Linked Image'} 
+                  className="max-w-full h-auto rounded"
+                  style={{ maxHeight: '200px' }}
+                />
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  ↑ Image will be clickable
+                </p>
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* Help Text */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <svg className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <div className="text-xs text-blue-800">
+              {linkType === 'text' && (
+                <>
+                  <strong>Tip:</strong> Select text in your email first, then insert link. 
+                  The selected text will become clickable.
+                </>
+              )}
+              {linkType === 'button' && (
+                <>
+                  <strong>Tip:</strong> Buttons are great for calls-to-action like 
+                  "Shop Now", "Learn More", or "Get Started".
+                </>
+              )}
+              {linkType === 'image' && (
+                <>
+                  <strong>Tip:</strong> Make sure you've added an image first. 
+                  The entire image will become clickable.
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2 justify-end mt-6">
+        <button
+          onClick={() => {
+            setShowLinkModal(false);
+            setLinkUrl('');
+            setLinkText('');
+          }}
+          className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            if (linkType === 'text') insertTextLink();
+            else if (linkType === 'button') insertButtonLink();
+            else if (linkType === 'image') insertImageLink();
+          }}
+          disabled={!linkUrl.trim() || (linkType === 'button' && !linkText.trim())}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm flex items-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Insert {linkType === 'text' ? 'Link' : linkType === 'button' ? 'Button' : 'Image Link'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+   {/* Text Formatting Modal */}
+{showTextFormatModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-lg p-4 sm:p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          {formatType === 'highlight' && (
+            <div className="p-2 bg-yellow-100 rounded-lg">
+              <svg className="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M17.25 3h-10.5C5.78 3 5 3.78 5 4.75v14.5c0 .97.78 1.75 1.75 1.75h10.5c.97 0 1.75-.78 1.75-1.75V4.75C19 3.78 18.22 3 17.25 3z"/>
+              </svg>
+            </div>
+          )}
+          {formatType === 'border' && (
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+              </svg>
+            </div>
+          )}
+          {formatType === 'list' && (
+            <div className="p-2 bg-green-100 rounded-lg">
+              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+              </svg>
+            </div>
+          )}
+          <div>
+            <h3 className="text-base sm:text-lg font-semibold">
+              {formatType === 'highlight' && 'Highlight Text'}
+              {formatType === 'border' && 'Add Border Box'}
+              {formatType === 'list' && 'Create List'}
+            </h3>
+            <p className="text-xs text-gray-500">
+              {formatType === 'highlight' && 'Add background color to selected text'}
+              {formatType === 'border' && 'Wrap text in a bordered box'}
+              {formatType === 'list' && 'Convert text to bullet or numbered list'}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => {
+            setShowTextFormatModal(false);
+          }}
+          className="text-gray-400 hover:text-gray-600"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      
+      <div className="space-y-4">
+        {/* Highlight Color Picker */}
+        {formatType === 'highlight' && (
+          <>
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                Highlight Color
+              </label>
+              <div className="flex gap-2">
+                <input 
+                  type="color" 
+                  value={highlightColor}
+                  onChange={(e) => setHighlightColor(e.target.value)}
+                  className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
+                />
+                <input 
+                  type="text" 
+                  value={highlightColor}
+                  onChange={(e) => setHighlightColor(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm"
+                  placeholder="#FFFF00"
+                />
+              </div>
+            </div>
+
+            {/* Quick color presets */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-2">Quick Colors</label>
+              <div className="flex gap-2 flex-wrap">
+                {['#FFFF00', '#FFD700', '#90EE90', '#87CEEB', '#FFB6C1', '#DDA0DD', '#F0E68C', '#E0E0E0'].map(color => (
+                  <button
+                    key={color}
+                    onClick={() => setHighlightColor(color)}
+                    className={`w-10 h-10 rounded border-2 ${highlightColor === color ? 'border-gray-800' : 'border-gray-300'}`}
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <p className="text-xs font-medium text-gray-700 mb-2">Preview:</p>
+              <p className="text-sm">
+                This is <span style={{ backgroundColor: highlightColor, padding: '2px 4px', borderRadius: '3px' }}>highlighted text</span> example
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* Border Box Settings */}
+        {formatType === 'border' && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Background Color</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="color" 
+                    value={boxStyle.bgColor}
+                    onChange={(e) => setBoxStyle({...boxStyle, bgColor: e.target.value})}
+                    className="w-12 h-9 border border-gray-300 rounded cursor-pointer"
+                  />
+                  <input 
+                    type="text" 
+                    value={boxStyle.bgColor}
+                    onChange={(e) => setBoxStyle({...boxStyle, bgColor: e.target.value})}
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Border Color</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="color" 
+                    value={boxStyle.borderColor}
+                    onChange={(e) => setBoxStyle({...boxStyle, borderColor: e.target.value})}
+                    className="w-12 h-9 border border-gray-300 rounded cursor-pointer"
+                  />
+                  <input 
+                    type="text" 
+                    value={boxStyle.borderColor}
+                    onChange={(e) => setBoxStyle({...boxStyle, borderColor: e.target.value})}
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Border Width</label>
+                <input 
+                  type="text" 
+                  value={boxStyle.borderWidth}
+                  onChange={(e) => setBoxStyle({...boxStyle, borderWidth: e.target.value})}
+                  placeholder="2px"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Border Radius</label>
+                <input 
+                  type="text" 
+                  value={boxStyle.borderRadius}
+                  onChange={(e) => setBoxStyle({...boxStyle, borderRadius: e.target.value})}
+                  placeholder="8px"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Padding</label>
+                <input 
+                  type="text" 
+                  value={boxStyle.padding}
+                  onChange={(e) => setBoxStyle({...boxStyle, padding: e.target.value})}
+                  placeholder="12px"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <p className="text-xs font-medium text-gray-700 mb-2">Preview:</p>
+              <div 
+                style={{
+                  backgroundColor: boxStyle.bgColor,
+                  border: `${boxStyle.borderWidth} solid ${boxStyle.borderColor}`,
+                  borderRadius: boxStyle.borderRadius,
+                  padding: boxStyle.padding
+                }}
+              >
+                <p className="text-sm">This is your bordered text box</p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* List Type Selection */}
+        {formatType === 'list' && (
+          <>
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                List Type
+              </label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setListStyle('bullet')}
+                  className={`flex-1 p-3 border-2 rounded-lg transition-colors ${
+                    listStyle === 'bullet'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  <svg className="w-6 h-6 mx-auto mb-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                  </svg>
+                  <p className="text-sm font-medium text-center">Bullet List</p>
+                  <p className="text-xs text-gray-500 text-center mt-1">• Item 1<br/>• Item 2</p>
+                </button>
+
+                <button
+                  onClick={() => setListStyle('numbered')}
+                  className={`flex-1 p-3 border-2 rounded-lg transition-colors ${
+                    listStyle === 'numbered'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  <svg className="w-6 h-6 mx-auto mb-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h18M3 12h18m-9 8h9" />
+                  </svg>
+                  <p className="text-sm font-medium text-center">Numbered List</p>
+                  <p className="text-xs text-gray-500 text-center mt-1">1. Item 1<br/>2. Item 2</p>
+                </button>
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <p className="text-xs font-medium text-gray-700 mb-2">Preview:</p>
+              {listStyle === 'bullet' ? (
+                <ul className="list-disc list-inside text-sm">
+                  <li>First item</li>
+                  <li>Second item</li>
+                  <li>Third item</li>
+                </ul>
+              ) : (
+                <ol className="list-decimal list-inside text-sm">
+                  <li>First item</li>
+                  <li>Second item</li>
+                  <li>Third item</li>
+                </ol>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Help Text */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <svg className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <div className="text-xs text-blue-800">
+              {formatType === 'highlight' && (
+                <>
+                  <strong>Tip:</strong> Select the text you want to highlight first, 
+                  choose your color, then click Apply.
+                </>
+              )}
+              {formatType === 'border' && (
+                <>
+                  <strong>Tip:</strong> Select text to wrap in a box. Great for 
+                  callouts, quotes, or important notices.
+                </>
+              )}
+              {formatType === 'list' && (
+                <>
+                  <strong>Tip:</strong> Put each list item on a new line, then select 
+                  all the lines and apply the list format.
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2 justify-end mt-6">
+        <button
+          onClick={() => {
+            setShowTextFormatModal(false);
+          }}
+          className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            if (formatType === 'highlight') applyHighlight();
+            else if (formatType === 'border') applyTextBorder();
+            else if (formatType === 'list') applyList();
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Apply {formatType === 'highlight' ? 'Highlight' : formatType === 'border' ? 'Border' : 'List'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
       </div>
       </div>
     </Protected>
