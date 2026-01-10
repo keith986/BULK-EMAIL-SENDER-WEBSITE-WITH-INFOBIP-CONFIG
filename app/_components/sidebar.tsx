@@ -74,7 +74,7 @@ export default function Sidebar() {
       {/* Sidebar */}
       <aside 
          ref={sidebarRef}
-         className={`fixed top-0 left-0 z-40 w-64 h-screen pt-20 transition-transform duration-300 ${
+         className={`fixed top-0 left-0 z-40 w-64 h-screen pt-21 transition-transform duration-300 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
          } sm:translate-x-0`}
          aria-label="Sidebar"
@@ -236,19 +236,7 @@ export default function Sidebar() {
                </li>
             </ul>
             
-            <div id="dropdown-cta" className="p-4 mt-6 rounded-lg bg-blue-50 dark:bg-blue-900" role="alert">
-               <div className="flex items-center mb-3">
-                  <span className="bg-orange-100 text-orange-800 text-sm font-semibold me-2 px-2.5 py-0.5 rounded-sm dark:bg-orange-200 dark:text-orange-900">Performance Tips</span>
-               </div>
-               <ul className="text-sm text-gray-600 dark:text-gray-400">
-                  <li className="mb-1">Tip 1: Configure batch settings and API in the sidebar before sending.</li>
-                  <li className="mb-1">Tip 2: Use batch size of 20-50 emails for optimal speed and reliability.</li>
-                  <li className="mb-1">Tip 3: Set delay between batches to 500-1000ms to avoid rate limiting.</li>
-                  <li className="mb-1">Tip 4: Keep browser tab open during sending process.</li>
-                  <li className="mb-1">Tip 5: Use CSV upload for large recipient lists.</li>
-               </ul>
-               <a className="text-sm text-blue-800 mt-2 block font-medium hover:text-red-900 dark:text-red-400 dark:hover:text-blue-300" href="#">Estimated time for 20K emails: 15-30 minutes with proper batching.</a>
-            </div>
+           
          </div>
       </aside>
    </div>

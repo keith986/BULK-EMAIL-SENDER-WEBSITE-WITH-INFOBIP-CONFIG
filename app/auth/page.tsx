@@ -11,7 +11,8 @@ import {
   getUserLocationData,
   logClientLogin,
   fetchSystemSettings,
-  getUserByEmail
+  getUserByEmail,
+  checkUserLoginStatus
 } from '../_utils/firebase-operations'; 
 import { toast, ToastContainer } from 'react-toastify';
 import { useUser } from '../_context/UserProvider';
@@ -209,211 +210,260 @@ export default function AuthPage() {
   };
 
   const handleSendOTP = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  if (e) e.preventDefault();
+  
+  console.log('🚀 handleSendOTP called for:', isData.email);
+  
+  if (!isData.email) {
+    toast.info("Email is required!");
+    return;
+  }
+
+  if (isRateLimited) {
+    const remainingTime = Math.ceil((rateLimitEndTime - Date.now()) / 1000);
+    toast.error(`Rate limited. Please wait ${remainingTime} seconds.`);
+    return;
+  }
+
+  if (otpResendTimer > 0) {
+    toast.info(`Please wait ${otpResendTimer} seconds before requesting a new OTP.`);
+    return;
+  }
+
+  if (!checkRateLimit()) {
+    return;
+  }
+
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastOtpRequestTime.current;
+  if (timeSinceLastRequest < 5000) {
+    toast.info('Please wait a moment before requesting another OTP.');
+    return;
+  }
+
+  setIsLoading(true);
+
+  try {
+    console.log('🔍 Step 1: Checking user eligibility...');
+    const eligibility = await checkUserEligibility(isData.email);
     
-    console.log('🚀 handleSendOTP called for:', isData.email);
+    console.log('📋 Eligibility result:', eligibility);
     
-    if (!isData.email) {
-      toast.info("Email is required!");
-      return;
-    }
-
-    if (isRateLimited) {
-      const remainingTime = Math.ceil((rateLimitEndTime - Date.now()) / 1000);
-      toast.error(`Rate limited. Please wait ${remainingTime} seconds.`);
-      return;
-    }
-
-    if (otpResendTimer > 0) {
-      toast.info(`Please wait ${otpResendTimer} seconds before requesting a new OTP.`);
-      return;
-    }
-
-    if (!checkRateLimit()) {
-      return;
-    }
-
-    const now = Date.now();
-    const timeSinceLastRequest = now - lastOtpRequestTime.current;
-    if (timeSinceLastRequest < 5000) {
-      toast.info('Please wait a moment before requesting another OTP.');
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      console.log('🔍 Step 1: Checking user eligibility...');
-      const eligibility = await checkUserEligibility(isData.email);
+    if (!eligibility.canProceed) {
+      console.log('🚫 USER BLOCKED - Stopping here, NO OTP will be sent');
+      console.log('📝 Reason:', eligibility.message);
       
-      console.log('📋 Eligibility result:', eligibility);
+      toast.error(eligibility.message || 'This email is not registered in our system.');
       
-      if (!eligibility.canProceed) {
-        console.log('🚫 USER BLOCKED - Stopping here, NO OTP will be sent');
-        console.log('📝 Reason:', eligibility.message);
+      setIsLoading(false);
+      setRegistrationEnabled(false);
+      setStep('email');
+      
+      console.log('⛔ Returning early - OTP sending code will NOT execute');
+      return;
+    }
+
+    // NEW: Check if user is suspended before sending OTP
+    if (!eligibility.isNewUser) {
+      console.log('🔍 Step 2: Checking if existing user is suspended...');
+      const loginStatus = await checkUserLoginStatus({ email: isData.email });
+      
+      console.log('📋 Login status result:', loginStatus);
+      
+      if (!loginStatus.canLogin) {
+        console.log('🚫 USER SUSPENDED - Login disabled');
+        toast.error(loginStatus.message);
         
-        toast.error(eligibility.message || 'This email is not registered in our system.');
+        // Log the failed login attempt
+        const locationData = await getCachedLocationData();
+        await logClientLogin({
+          userEmail: isData.email,
+          status: 'failed',
+          failureReason: 'Account suspended',
+          ipAddress: locationData.ipAddress,
+          userAgent: locationData.userAgent,
+          location: locationData.location
+        });
         
         setIsLoading(false);
-        setRegistrationEnabled(false);
-        setStep('email');
-        
-        console.log('⛔ Returning early - OTP sending code will NOT execute');
-        return; // CRITICAL: Stop here!
+        return;
       }
-
-      console.log('✅ USER ELIGIBLE - Proceeding to send OTP');
       
-      setIsNewUser(eligibility.isNewUser);
+      console.log('✅ User is active - proceeding...');
+    }
 
-      const locationData = await getCachedLocationData();
+    console.log('✅ USER ELIGIBLE - Proceeding to send OTP');
+    
+    setIsNewUser(eligibility.isNewUser);
+
+    const locationData = await getCachedLocationData();
+    
+    const logPromise = logClientLogin({
+      userEmail: isData.email,
+      status: 'otp_sent',
+      ipAddress: locationData.ipAddress,
+      userAgent: locationData.userAgent,
+      location: locationData.location
+    });
+
+    console.log('📝 Creating OTP in Firestore...');
+    const result = await createOTP({ email: isData.email });
+    
+    if (result.code === 777 && result.otp) {
+      console.log('✉️ Sending OTP email via API...');
       
-      const logPromise = logClientLogin({
-        userEmail: isData.email,
-        status: 'otp_sent',
-        ipAddress: locationData.ipAddress,
-        userAgent: locationData.userAgent,
-        location: locationData.location
+      const emailResponse = await fetch('/api/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: isData.email, 
+          otp: result.otp 
+        })
       });
 
-      console.log('📝 Creating OTP in Firestore...');
-      const result = await createOTP({ email: isData.email });
-      
-      if (result.code === 777 && result.otp) {
-        console.log('✉️ Sending OTP email via API...');
+      if (emailResponse.ok) {
+        console.log('✅ OTP email sent successfully');
         
-        const emailResponse = await fetch('/api/send-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            email: isData.email, 
-            otp: result.otp 
-          })
-        });
-
-        if (emailResponse.ok) {
-          console.log('✅ OTP email sent successfully');
-          
-          lastOtpRequestTime.current = now;
-          requestTimestamps.current.push(now);
-          setOtpAttempts(prev => prev + 1);
-          
-          const waitTime = getWaitTime();
-          setOtpResendTimer(waitTime);
-          
-          logPromise.catch(err => console.error('Failed to log OTP sent:', err));
-          
-          toast.success(`OTP sent! Check your email.`);
-          setStep('otp');
-        } else {
-          console.error('❌ Failed to send OTP email - API returned error');
-          toast.error('Failed to send OTP email. Please try again.');
-        }
+        lastOtpRequestTime.current = now;
+        requestTimestamps.current.push(now);
+        setOtpAttempts(prev => prev + 1);
+        
+        const waitTime = getWaitTime();
+        setOtpResendTimer(waitTime);
+        
+        logPromise.catch(err => console.error('Failed to log OTP sent:', err));
+        
+        toast.success(`OTP sent! Check your email.`);
+        setStep('otp');
       } else {
-        console.error('❌ Failed to create OTP in Firestore');
-        toast.error(result.message || 'Failed to generate OTP. Please try again.');
+        console.error('❌ Failed to send OTP email - API returned error');
+        toast.error('Failed to send OTP email. Please try again.');
       }
-    } catch (err) {
-      console.error('❌ Error in handleSendOTP:', err);
-      const message = err instanceof Error ? err.message : String(err);
-      console.log(message)
-      toast.error('An error occurred. Please try again.');
-    } finally {
-      console.log('🏁 handleSendOTP complete, setting isLoading to false');
-      setIsLoading(false);
+    } else {
+      console.error('❌ Failed to create OTP in Firestore');
+      toast.error(result.message || 'Failed to generate OTP. Please try again.');
     }
+  } catch (err) {
+    console.error('❌ Error in handleSendOTP:', err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(message)
+    toast.error('An error occurred. Please try again.');
+  } finally {
+    console.log('🏁 handleSendOTP complete, setting isLoading to false');
+    setIsLoading(false);
+  }
   };
 
   const handleVerifyOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!isData.otp) {
-      toast.info("Please enter the OTP!");
-      return;
-    }
+  if (!isData.otp) {
+    toast.info("Please enter the OTP!");
+    return;
+  }
 
-    if (isData.otp.length !== 6) {
-      toast.info("OTP must be 6 digits!");
-      return;
-    }
+  if (isData.otp.length !== 6) {
+    toast.info("OTP must be 6 digits!");
+    return;
+  }
 
-    setIsLoading(true);
+  setIsLoading(true);
 
-    try {
-      const locationData = await getCachedLocationData();
+  try {
+    const locationData = await getCachedLocationData();
 
-      const result = await verifyOTP({ 
-        email: isData.email, 
-        otp: isData.otp 
-      });
+    const result = await verifyOTP({ 
+      email: isData.email, 
+      otp: isData.otp 
+    });
 
-      if (result.code === 777) {
-        const userIsNew = result.isNewUser || false;
-        setIsNewUser(userIsNew);
+    if (result.code === 777) {
+      const userIsNew = result.isNewUser || false;
+      setIsNewUser(userIsNew);
 
-        logClientLogin({
-          userEmail: isData.email,
-          status: 'otp_verified',
-          ipAddress: locationData.ipAddress,
-          userAgent: locationData.userAgent,
-          location: locationData.location
-        }).catch(err => console.error('Failed to log OTP verified:', err));
+      logClientLogin({
+        userEmail: isData.email,
+        status: 'otp_verified',
+        ipAddress: locationData.ipAddress,
+        userAgent: locationData.userAgent,
+        location: locationData.location
+      }).catch(err => console.error('Failed to log OTP verified:', err));
 
-        if (userIsNew) {
-          if (!registrationEnabled) {
-            toast.error('New user registration is currently disabled. Please contact the administrator.');
-            setStep('email');
-            setRegistrationEnabled(false);
-            return;
-          }
-          
-          toast.success('OTP verified! Please complete your profile.');
-          setStep('details');
-        } else {
-          const signInResult = await signInOTPUser({ email: isData.email });
-          
-          if (signInResult.code === 777) {
-            logClientLogin({
-              userEmail: isData.email,
-              status: 'success',
-              ipAddress: locationData.ipAddress,
-              userAgent: locationData.userAgent,
-              location: locationData.location
-            }).catch(err => console.error('Failed to log success:', err));
-
-            toast.success('Login successful!');
-            router.push('/dashboard');
-          } else {
-            logClientLogin({
-              userEmail: isData.email,
-              status: 'failed',
-              failureReason: signInResult.message,
-              ipAddress: locationData.ipAddress,
-              userAgent: locationData.userAgent,
-              location: locationData.location
-            }).catch(err => console.error('Failed to log failure:', err));
-
-            toast.error(signInResult.message || 'Failed to sign in');
-          }
+      if (userIsNew) {
+        if (!registrationEnabled) {
+          toast.error('New user registration is currently disabled. Please contact the administrator.');
+          setStep('email');
+          setRegistrationEnabled(false);
+          return;
         }
+        
+        toast.success('OTP verified! Please complete your profile.');
+        setStep('details');
       } else {
-        logClientLogin({
-          userEmail: isData.email,
-          status: 'failed',
-          failureReason: 'Invalid OTP',
-          ipAddress: locationData.ipAddress,
-          userAgent: locationData.userAgent,
-          location: locationData.location
-        }).catch(err => console.error('Failed to log invalid OTP:', err));
+        // NEW: Double-check suspension status before allowing login
+        const loginStatus = await checkUserLoginStatus({ email: isData.email });
+        
+        if (!loginStatus.canLogin) {
+          toast.error(loginStatus.message);
+          
+          await logClientLogin({
+            userEmail: isData.email,
+            status: 'failed',
+            failureReason: 'Account suspended',
+            ipAddress: locationData.ipAddress,
+            userAgent: locationData.userAgent,
+            location: locationData.location
+          });
+          
+          setIsLoading(false);
+          setStep('email');
+          return;
+        }
+        
+        const signInResult = await signInOTPUser({ email: isData.email });
+        
+        if (signInResult.code === 777) {
+          logClientLogin({
+            userEmail: isData.email,
+            status: 'success',
+            ipAddress: locationData.ipAddress,
+            userAgent: locationData.userAgent,
+            location: locationData.location
+          }).catch(err => console.error('Failed to log success:', err));
 
-        toast.error(result.message || 'Invalid OTP');
+          toast.success('Login successful!');
+          router.push('/dashboard');
+        } else {
+          logClientLogin({
+            userEmail: isData.email,
+            status: 'failed',
+            failureReason: signInResult.message,
+            ipAddress: locationData.ipAddress,
+            userAgent: locationData.userAgent,
+            location: locationData.location
+          }).catch(err => console.error('Failed to log failure:', err));
+
+          toast.error(signInResult.message || 'Failed to sign in');
+        }
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(message);
-    } finally {
-      setIsLoading(false);
+    } else {
+      logClientLogin({
+        userEmail: isData.email,
+        status: 'failed',
+        failureReason: 'Invalid OTP',
+        ipAddress: locationData.ipAddress,
+        userAgent: locationData.userAgent,
+        location: locationData.location
+      }).catch(err => console.error('Failed to log invalid OTP:', err));
+
+      toast.error(result.message || 'Invalid OTP');
     }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    toast.error(message);
+  } finally {
+    setIsLoading(false);
+  }
   };
 
   const handleCompleteSignup = async (e: React.FormEvent) => {

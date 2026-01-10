@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity, MapPin, Monitor, CheckCircle, AlertCircle,Smartphone, ClockIcon, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
+import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity, MapPin, Monitor, CheckCircle, AlertCircle,Smartphone, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
 import { collection, getDocs, query, where, updateDoc, doc, deleteDoc, setDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
 import AdminProtected  from '../../_components/AdminProtected'
@@ -584,39 +584,43 @@ const handleUpdateSubscription = async () => {
 };
 
   const handleSuspendUser = async (userId: string) => {
-    try {
-      const userDocRef = doc(db, 'clients', userId);
-      await updateDoc(userDocRef, {
-        status: 'suspended',
-        updatedAt: serverTimestamp()
-      });
+  try {
+    const userDocRef = doc(db, 'clients', userId);
+    await updateDoc(userDocRef, {
+      status: 'suspended',
+      loginEnabled: false,
+      suspendedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
 
-      setUsers(users.map(u => 
-        u.id === userId ? { ...u, status: 'suspended' as const } : u
-      ));
-      showToast('User suspended successfully', 'success');
-    } catch (error) {
-      console.error('Error suspending user:', error);
-      showToast('Error suspending user', 'error');
-    }
+    setUsers(users.map(u => 
+      u.id === userId ? { ...u, status: 'suspended' as const } : u
+    ));
+    showToast('User suspended successfully. Login access disabled.', 'success');
+  } catch (error) {
+    console.error('Error suspending user:', error);
+    showToast('Error suspending user', 'error');
+  }
   };
 
   const handleActivateUser = async (userId: string) => {
-    try {
-      const userDocRef = doc(db, 'clients', userId);
-      await updateDoc(userDocRef, {
-        status: 'active',
-        updatedAt: serverTimestamp()
-      });
+  try {
+    const userDocRef = doc(db, 'clients', userId);
+    await updateDoc(userDocRef, {
+      status: 'active',
+      loginEnabled: true,
+      reactivatedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
 
-      setUsers(users.map(u => 
-        u.id === userId ? { ...u, status: 'active' as const } : u
-      ));
-      showToast('User activated successfully', 'success');
-    } catch (error) {
-      console.error('Error activating user:', error);
-      showToast('Error activating user', 'error');
-    }
+    setUsers(users.map(u => 
+      u.id === userId ? { ...u, status: 'active' as const } : u
+    ));
+    showToast('User activated successfully. Login access enabled.', 'success');
+  } catch (error) {
+    console.error('Error activating user:', error);
+    showToast('Error activating user', 'error');
+  }
   };
 
   const handleDeleteUser = (userId: string, email: string, displayName: string) => {
@@ -639,10 +643,6 @@ const handleUpdateSubscription = async () => {
     c.userEmail.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-   const filteredPayments = payments.filter(u => 
-    u.userEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.userName.toLowerCase().includes(searchQuery.toLowerCase())
-  ); 
 
 const loadPayments = async () => {
   try {

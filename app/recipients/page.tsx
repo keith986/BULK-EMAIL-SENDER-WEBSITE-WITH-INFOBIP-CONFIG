@@ -6,9 +6,9 @@ import { toast, ToastContainer } from 'react-toastify';
 import { useUser } from '../_context/UserProvider';
 
 interface Recipient { 
-  name?: string; 
+  firstName?: string;
+  lastName?: string;
   email: string;
-  username?: string;
   groups?: string[];
 }
 
@@ -406,31 +406,31 @@ export default function Recipients() {
 
   return (
     <Protected>
-      <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">  
-        <div className="relative overflow-x-auto mt-20 sm:ml-80 sm:mr-70">
+      <div className="sm:mt-1 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">  
+        <div className="relative overflow-x-auto mt-20 sm:ml-80 sm:mr-20">
           
           {/* Group Filter Bar */}
-          <div className="bg-white rounded-lg p-4 mb-4 shadow-md">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+          <div className="bg-white rounded-lg p-3 sm:p-4 mb-3 sm:mb-4 shadow-md">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
                 </svg>
                 Groups
               </h3>
               <button 
                 onClick={() => setShowGroupPanel(!showGroupPanel)}
-                className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                className="w-full sm:w-auto px-3 py-1.5 sm:py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-xs sm:text-sm"
               >
                 {showGroupPanel ? 'Hide' : 'Manage Groups'}
               </button>
             </div>
 
             {/* Group Filter Tabs */}
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-1.5 sm:gap-2 flex-wrap">
               <button
                 onClick={() => { setSelectedGroup('All'); setCurrentPage(1); }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
                   selectedGroup === 'All' 
                     ? 'bg-blue-600 text-white shadow-md' 
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -442,35 +442,37 @@ export default function Recipients() {
                 <button
                   key={group}
                   onClick={() => { setSelectedGroup(group); setCurrentPage(1); }}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
                     selectedGroup === group 
                       ? 'bg-purple-600 text-white shadow-md' 
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  {group} ({recipients.filter(r => r.groups?.includes(group)).length})
+                  <span className="hidden sm:inline">{group}</span>
+                  <span className="sm:hidden">{group.slice(0, 3)}</span>
+                  <span className="ml-1">({recipients.filter(r => r.groups?.includes(group)).length})</span>
                 </button>
               ))}
             </div>
 
             {/* Group Management Panel */}
             {showGroupPanel && (
-              <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <h4 className="font-semibold text-gray-800 mb-3">Manage Groups</h4>
+              <div className="mt-4 p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <h4 className="font-semibold text-gray-800 mb-3 text-sm sm:text-base">Manage Groups</h4>
                 
                 {/* Create New Group */}
-                <div className="flex gap-2 mb-4">
+                <div className="flex flex-col sm:flex-row gap-2 mb-4">
                   <input
                     type="text"
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
                     placeholder="New group name"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                     onKeyPress={(e) => e.key === 'Enter' && addNewGroup()}
                   />
                   <button
                     onClick={addNewGroup}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                    className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm whitespace-nowrap"
                   >
                     Create Group
                   </button>
@@ -479,11 +481,11 @@ export default function Recipients() {
                 {/* Existing Groups */}
                 <div className="space-y-2">
                   {groups.map(group => (
-                    <div key={group} className="flex items-center justify-between bg-white p-3 rounded-md border border-gray-200">
-                      <span className="font-medium text-gray-700">{group}</span>
+                    <div key={group} className="flex items-center justify-between bg-white p-2 sm:p-3 rounded-md border border-gray-200">
+                      <span className="font-medium text-gray-700 text-sm">{group}</span>
                       <button
                         onClick={() => deleteGroup(group)}
-                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200"
+                        className="px-2 sm:px-3 py-1 bg-red-100 text-red-700 rounded text-xs sm:text-sm hover:bg-red-200"
                       >
                         Delete
                       </button>
@@ -495,18 +497,24 @@ export default function Recipients() {
           </div>
 
           {/* Bulk Action Toolbar */}
-          <div className="md:flex items-center justify-between mb-3 gap-3">
-            <div className="flex items-center gap-2 flex-wrap mb-2 md:mb-0">
-              <button onClick={() => toggleSelectAllOnPage()} className="px-3 py-1 bg-gray-100 rounded hover:bg-gray-200">Toggle select page</button>
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-3 gap-2 sm:gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <button 
+                onClick={() => toggleSelectAllOnPage()} 
+                className="px-2 sm:px-3 py-1 sm:py-1.5 bg-gray-100 rounded hover:bg-gray-200 text-xs sm:text-sm whitespace-nowrap"
+              >
+                Toggle Page
+              </button>
               <button 
                 onClick={() => {
                   setBulkGroupAction('add');
                   setShowBulkGroupModal(true);
                 }} 
                 disabled={selectedEmails.length === 0} 
-                className="px-3 py-1.5 bg-green-600 text-white rounded disabled:opacity-50 hover:bg-green-700 font-medium"
+                className="px-2 sm:px-3 py-1 sm:py-1.5 bg-green-600 text-white rounded disabled:opacity-50 hover:bg-green-700 font-medium text-xs sm:text-sm whitespace-nowrap"
               >
-                Add to Group ({selectedEmails.length})
+                <span className="hidden sm:inline">Add to Group</span>
+                <span className="sm:hidden">Add</span> ({selectedEmails.length})
               </button>
               <button 
                 onClick={() => {
@@ -514,97 +522,218 @@ export default function Recipients() {
                   setShowBulkGroupModal(true);
                 }} 
                 disabled={selectedEmails.length === 0} 
-                className="px-3 py-1.5 bg-orange-600 text-white rounded disabled:opacity-50 hover:bg-orange-700 font-medium"
+                className="px-2 sm:px-3 py-1 sm:py-1.5 bg-orange-600 text-white rounded disabled:opacity-50 hover:bg-orange-700 font-medium text-xs sm:text-sm whitespace-nowrap"
               >
-                Remove from Group ({selectedEmails.length})
+                <span className="hidden sm:inline">Remove</span>
+                <span className="sm:hidden">Rem</span> ({selectedEmails.length})
               </button>
-              <button onClick={() => setPendingBulkAction('selected')} disabled={selectedEmails.length === 0 || deletingBulk} className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50">Delete selected ({selectedEmails.length})</button>
-              <button onClick={() => setPendingBulkAction('all')} disabled={filteredRecipients.length === 0 || deletingBulk} className="px-3 py-1 bg-red-700 text-white rounded disabled:opacity-50">Delete all ({filteredRecipients.length})</button>
+              <button 
+                onClick={() => setPendingBulkAction('selected')} 
+                disabled={selectedEmails.length === 0 || deletingBulk} 
+                className="px-2 sm:px-3 py-1 sm:py-1.5 bg-red-600 text-white rounded disabled:opacity-50 text-xs sm:text-sm whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Delete selected</span>
+                <span className="sm:hidden">Del</span> ({selectedEmails.length})
+              </button>
+              <button 
+                onClick={() => setPendingBulkAction('all')} 
+                disabled={filteredRecipients.length === 0 || deletingBulk} 
+                className="px-2 sm:px-3 py-1 sm:py-1.5 bg-red-700 text-white rounded disabled:opacity-50 text-xs sm:text-sm whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Delete all</span>
+                <span className="sm:hidden">All</span> ({filteredRecipients.length})
+              </button>
             </div>
-            <div>
-              <span className="text-sm text-gray-600">Showing {firstIndex + 1} - {Math.min(lastIndex, filteredRecipients.length)} of {filteredRecipients.length}</span>
+            <div className="text-center lg:text-right">
+              <span className="text-xs sm:text-sm text-gray-600">
+                Showing {firstIndex + 1} - {Math.min(lastIndex, filteredRecipients.length)} of {filteredRecipients.length}
+              </span>
             </div>
           </div>
 
           {/* Bulk Action Confirmation */}
           {pendingBulkAction && (
-            <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded flex items-center justify-between">
-              <div className="text-sm text-gray-700">{pendingBulkAction === 'selected' ? `Delete ${selectedEmails.length} selected recipient(s)?` : `Delete ALL ${filteredRecipients.length} recipient(s)?`}</div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => confirmBulkDelete(pendingBulkAction)} disabled={deletingBulk} className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50">{deletingBulk ? 'Deleting…' : 'Confirm'}</button>
-                <button onClick={() => setPendingBulkAction(null)} disabled={deletingBulk} className="px-3 py-1 bg-gray-100 rounded disabled:opacity-50">Cancel</button>
+            <div className="mb-3 p-2 sm:p-3 bg-yellow-50 border border-yellow-200 rounded flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="text-xs sm:text-sm text-gray-700">
+                {pendingBulkAction === 'selected' 
+                  ? `Delete ${selectedEmails.length} selected recipient(s)?` 
+                  : `Delete ALL ${filteredRecipients.length} recipient(s)?`}
+              </div>
+              <div className="flex items-center gap-2 justify-end">
+                <button 
+                  onClick={() => confirmBulkDelete(pendingBulkAction)} 
+                  disabled={deletingBulk} 
+                  className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 text-xs sm:text-sm"
+                >
+                  {deletingBulk ? 'Deleting…' : 'Confirm'}
+                </button>
+                <button 
+                  onClick={() => setPendingBulkAction(null)} 
+                  disabled={deletingBulk} 
+                  className="px-3 py-1 bg-gray-100 rounded disabled:opacity-50 text-xs sm:text-sm"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           )}
 
           <ToastContainer position="top-right" autoClose={7000} hideProgressBar={false} closeOnClick draggable pauseOnHover theme={"light"} />
           
-          {/* Recipients Table */}
-          <table className="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-            <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
-              <tr>
-                <th scope="col" className="px-6 py-3">
-                  <input type="checkbox" aria-label="Select all on page" onChange={toggleSelectAllOnPage} checked={records.length > 0 && records.every(r => selectedEmails.includes(r.email))} />
-                </th>
-                <th scope="col" className="px-6 py-3">NO.</th>
-                <th scope="col" className="px-6 py-3">Name</th>
-                <th scope="col" className="px-6 py-3">Username</th>
-                <th scope="col" className="px-6 py-3">Email Address</th>
-                <th scope="col" className="px-6 py-3">Groups</th>
-                <th scope="col" className="px-6 py-3">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!isLoading ? 
-                records.map((recipient: Recipient, index: number) => (
-                  <tr key={recipient.email} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 border-gray-200">
-                    <td className="px-6 py-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedEmails.includes(recipient.email)}
-                        onChange={() => {
-                          setSelectedEmails(prev => prev.includes(recipient.email) ? prev.filter(e => e !== recipient.email) : [...prev, recipient.email]);
-                        }}
-                        aria-label={`Select ${recipient.email}`}
-                        className="w-4 h-4"
-                      />
-                    </td>
-                    <td className="px-6 py-4">{firstIndex + index + 1}</td>
-                    <td className="px-6 py-4">{recipient.name || '-'}</td>
-                    <td className="px-6 py-4">{recipient.username || '-'}</td>
-                    <td className="px-6 py-4">{recipient.email}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {recipient.groups && recipient.groups.length > 0 ? (
-                          recipient.groups.map(group => (
-                            <span key={group} className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">
-                              {group}
-                              <button
-                                onClick={() => removeRecipientFromGroup(recipient, group)}
-                                className="hover:text-purple-900"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-gray-400 text-xs">No groups</span>
-                        )}
-                        <button
-                          onClick={() => {
-                            setRecipientToGroup(recipient);
-                            setShowGroupModal(true);
+          {/* Desktop Table View - Hidden on mobile */}
+          <div className="hidden md:block overflow-x-auto rounded-lg shadow">
+            <table className="w-full text-sm text-left text-gray-500">
+              <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-4 py-3">
+                    <input 
+                      type="checkbox" 
+                      aria-label="Select all on page" 
+                      onChange={toggleSelectAllOnPage} 
+                      checked={records.length > 0 && records.every(r => selectedEmails.includes(r.email))} 
+                      className="w-4 h-4"
+                    />
+                  </th>
+                  <th scope="col" className="px-4 py-3">NO.</th>
+                  <th scope="col" className="px-4 py-3">First Name</th>
+                  <th scope="col" className="px-4 py-3">Last Name</th>
+                  <th scope="col" className="px-4 py-3">Email</th>
+                  <th scope="col" className="px-4 py-3">Groups</th>
+                  <th scope="col" className="px-4 py-3">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!isLoading ? 
+                  records.map((recipient: Recipient, index: number) => (
+                    <tr key={recipient.email} className="bg-white border-b hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedEmails.includes(recipient.email)}
+                          onChange={() => {
+                            setSelectedEmails(prev => prev.includes(recipient.email) 
+                              ? prev.filter(e => e !== recipient.email) 
+                              : [...prev, recipient.email]);
                           }}
-                          className="text-blue-600 hover:text-blue-800 text-xs font-medium"
-                        >
-                          + Add to group
-                        </button>
+                          aria-label={`Select ${recipient.email}`}
+                          className="w-4 h-4"
+                        />
+                      </td>
+                      <td className="px-4 py-3">{firstIndex + index + 1}</td>
+                      <td className="px-4 py-3">{recipient.firstName || '-'}</td>
+                      <td className="px-4 py-3">{recipient.lastName || '-'}</td>
+                      <td className="px-4 py-3">{recipient.email}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {recipient.groups && recipient.groups.length > 0 ? (
+                            recipient.groups.map(group => (
+                              <span key={group} className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">
+                                {group}
+                                <button
+                                  onClick={() => removeRecipientFromGroup(recipient, group)}
+                                  className="hover:text-purple-900"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-400 text-xs">No groups</span>
+                          )}
+                          <button
+                            onClick={() => {
+                              setRecipientToGroup(recipient);
+                              setShowGroupModal(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {pendingDeleteEmail === recipient.email ? (
+                          <div className="inline-flex items-center gap-2 bg-yellow-50 border border-yellow-200 px-2 py-1 rounded">
+                            <span className="text-xs text-gray-700">Delete?</span>
+                            <button
+                              onClick={async () => {
+                                if (!user?.uid) return toast.error('You must be signed in');
+                                try {
+                                  setDeletingEmail(recipient.email);
+                                  const resp = await removeRecipientFromFirebase({ userId: user.uid, email: recipient.email });
+                                  if (resp.code === 777) {
+                                    setRecipients(prev => prev.filter(p => p.email !== recipient.email));
+                                    toast.success('Recipient deleted');
+                                  } else {
+                                    toast.error('Delete failed');
+                                  }
+                                } catch (err) {
+                                  toast.error('Error deleting');
+                                } finally {
+                                  setDeletingEmail(null);
+                                  setPendingDeleteEmail(null);
+                                }
+                              }}
+                              disabled={deletingEmail === recipient.email}
+                              className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {deletingEmail === recipient.email ? '...' : 'Yes'}
+                            </button>
+                            <button
+                              onClick={() => setPendingDeleteEmail(null)}
+                              disabled={deletingEmail === recipient.email}
+                              className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200 disabled:opacity-50"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setPendingDeleteEmail(recipient.email)}
+                            className="font-medium text-red-600 hover:underline text-sm"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                  :
+                  <tr>
+                    <td colSpan={7} className="text-center px-6 py-8 text-gray-400 text-lg">Loading...</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card View - Visible only on mobile */}
+          <div className="md:hidden space-y-3">
+            {!isLoading ? (
+              records.length > 0 ? (
+                records.map((recipient: Recipient, index: number) => (
+                  <div key={recipient.email} className="bg-white rounded-lg shadow p-4 border border-gray-200">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedEmails.includes(recipient.email)}
+                          onChange={() => {
+                            setSelectedEmails(prev => prev.includes(recipient.email) 
+                              ? prev.filter(e => e !== recipient.email) 
+                              : [...prev, recipient.email]);
+                          }}
+                          className="w-4 h-4 mt-1"
+                        />
+                        <div>
+                          <div className="font-semibold text-gray-900 text-sm">
+                            {recipient.firstName || '-'} {recipient.lastName || '-'}
+                          </div>
+                          <div className="text-xs text-gray-500">#{firstIndex + index + 1}</div>
+                        </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4">
                       {pendingDeleteEmail === recipient.email ? (
-                        <div className="inline-flex items-center gap-2 bg-yellow-50 border border-yellow-200 px-3 py-1 rounded">
-                          <span className="text-sm text-gray-700">Delete?</span>
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={async () => {
                               if (!user?.uid) return toast.error('You must be signed in');
@@ -625,51 +754,109 @@ export default function Recipients() {
                               }
                             }}
                             disabled={deletingEmail === recipient.email}
-                            className="px-2 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50"
+                            className="px-2 py-1 bg-red-600 text-white rounded text-xs disabled:opacity-50"
                           >
-                            {deletingEmail === recipient.email ? 'Deleting…' : 'Confirm'}
+                            {deletingEmail === recipient.email ? '...' : 'Yes'}
                           </button>
                           <button
                             onClick={() => setPendingDeleteEmail(null)}
                             disabled={deletingEmail === recipient.email}
-                            className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 disabled:opacity-50"
+                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs disabled:opacity-50"
                           >
-                            Cancel
+                            No
                           </button>
                         </div>
                       ) : (
                         <button
                           onClick={() => setPendingDeleteEmail(recipient.email)}
-                          className="font-medium text-red-600 hover:underline"
+                          className="text-red-600 hover:text-red-700 text-xs font-medium"
                         >
                           Delete
                         </button>
                       )}
-                    </td>
-                  </tr>
+                    </div>
+                    
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="text-gray-500 text-xs">Email:</span>
+                        <div className="text-gray-900 break-all">{recipient.email}</div>
+                      </div>
+                      
+                      <div>
+                        <span className="text-gray-500 text-xs">Groups:</span>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                          {recipient.groups && recipient.groups.length > 0 ? (
+                            recipient.groups.map(group => (
+                              <span key={group} className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">
+                                {group}
+                                <button
+                                  onClick={() => removeRecipientFromGroup(recipient, group)}
+                                  className="hover:text-purple-900"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-400 text-xs">No groups</span>
+                          )}
+                          <button
+                            onClick={() => {
+                              setRecipientToGroup(recipient);
+                              setShowGroupModal(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                          >
+                            + Add to group
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ))
-                :
-                <tr>
-                  <td colSpan={6} className="text-center px-6 py-4 text-gray-100 text-2xl">Loading...</td>
-                </tr>
-              }
-            </tbody>
-          </table>
+              ) : (
+                <div className="text-center py-8 text-white dark:text-white">No recipients found</div>
+              )
+            ) : (
+              <div className="text-center py-8 text-white dark:text-white">Loading...</div>
+            )}
+          </div>
 
           {/* Pagination */}
           <div className='mt-4'>
             <nav>
-              <ul className='flex flex-row justify-center items-center gap-2'>
-                <li className='page-item'>
-                  <button className='bg-gray-100 px-2 rounded-xl hover:shadow-xl transform hover:scale-95 cursor-pointer' onClick={handlePrev}>Prev</button>
+              <ul className='flex flex-row justify-center items-center gap-1 sm:gap-2 flex-wrap'>
+                <li>
+                  <button 
+                    className='bg-gray-100 px-2 sm:px-3 py-1 rounded-lg hover:shadow-lg transition text-xs sm:text-sm' 
+                    onClick={handlePrev}
+                    disabled={currentPage === 1}
+                  >
+                    Prev
+                  </button>
                 </li>
                 {numbers.map((n: number, i: number) => (
-                  <li className={`page-item ${currentPage === n ? 'active' : ''}`} key={i}>
-                    <button className={`${currentPage === n ? 'bg-red-900 text-white px-2 rounded-xl hover:shadow-xl transform hover:scale-95 cursor-pointer' : 'bg-red-100 px-2 rounded-xl hover:shadow-xl transform hover:scale-95 cursor-pointer'}`} onClick={() => handlePage(n)}>{n}</button>
+                  <li key={i}>
+                    <button 
+                      className={`px-2 sm:px-3 py-1 rounded-lg transition text-xs sm:text-sm ${
+                        currentPage === n 
+                          ? 'bg-red-900 text-white shadow-lg' 
+                          : 'bg-red-100 hover:bg-red-200'
+                      }`} 
+                      onClick={() => handlePage(n)}
+                    >
+                      {n}
+                    </button>
                   </li>
                 ))}
-                <li className='page-item'>
-                  <button className='bg-gray-100 px-2 rounded-xl hover:shadow-xl transform hover:scale-95 cursor-pointer' onClick={handleNext}>Next</button>
+                <li>
+                  <button 
+                    className='bg-gray-100 px-2 sm:px-3 py-1 rounded-lg hover:shadow-lg transition text-xs sm:text-sm' 
+                    onClick={handleNext}
+                    disabled={currentPage === nPage}
+                  >
+                    Next
+                  </button>
                 </li>
               </ul>
             </nav> 
@@ -677,16 +864,15 @@ export default function Recipients() {
 
           {/* Bulk Add/Remove Group Modal */}
           {showBulkGroupModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                <h3 className="text-lg font-semibold mb-4">
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full mx-4">
+                <h3 className="text-base sm:text-lg font-semibold mb-4">
                   {bulkGroupAction === 'add' 
                     ? `Add ${selectedEmails.length} recipient(s) to a group` 
                     : `Remove ${selectedEmails.length} recipient(s) from a group`}
                 </h3>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {groups.map(group => {
-                    // For remove action, show how many selected recipients have this group
                     const recipientsWithGroup = bulkGroupAction === 'remove' 
                       ? recipients.filter(r => selectedEmails.includes(r.email) && r.groups?.includes(group)).length
                       : 0;
@@ -695,7 +881,7 @@ export default function Recipients() {
                       <button
                         key={group}
                         onClick={() => bulkGroupAction === 'add' ? addSelectedToGroup(group) : removeSelectedFromGroup(group)}
-                        className={`w-full text-left p-3 rounded border transition-all font-medium ${
+                        className={`w-full text-left p-3 rounded border transition-all font-medium text-sm ${
                           bulkGroupAction === 'add'
                             ? 'hover:bg-green-50 border-gray-200 hover:border-green-300'
                             : recipientsWithGroup > 0
@@ -707,7 +893,7 @@ export default function Recipients() {
                         <div className="flex items-center justify-between">
                           <span>{group}</span>
                           {bulkGroupAction === 'remove' && recipientsWithGroup > 0 && (
-                            <span className="text-sm text-gray-500">({recipientsWithGroup} have this)</span>
+                            <span className="text-xs text-gray-500">({recipientsWithGroup} have this)</span>
                           )}
                         </div>
                       </button>
@@ -716,7 +902,7 @@ export default function Recipients() {
                 </div>
                 <button
                   onClick={() => setShowBulkGroupModal(false)}
-                  className="mt-4 w-full px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                  className="mt-4 w-full px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm"
                 >
                   Cancel
                 </button>
@@ -726,9 +912,14 @@ export default function Recipients() {
 
           {/* Add to Group Modal (Single Recipient) */}
           {showGroupModal && recipientToGroup && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                <h3 className="text-lg font-semibold mb-4">Add {recipientToGroup.email} to groups</h3>
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full">
+                <h3 className="text-base sm:text-lg font-semibold mb-4">
+                  Add to groups
+                </h3>
+                <div className="text-xs sm:text-sm text-gray-600 mb-3 break-all">
+                  {recipientToGroup.email}
+                </div>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {groups.map(group => (
                     <label key={group} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
@@ -746,7 +937,7 @@ export default function Recipients() {
                         }}
                         className="w-4 h-4"
                       />
-                      <span>{group}</span>
+                      <span className="text-sm">{group}</span>
                     </label>
                   ))}
                 </div>
@@ -755,7 +946,7 @@ export default function Recipients() {
                     setShowGroupModal(false);
                     setRecipientToGroup(null);
                   }}
-                  className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
                 >
                   Done
                 </button>

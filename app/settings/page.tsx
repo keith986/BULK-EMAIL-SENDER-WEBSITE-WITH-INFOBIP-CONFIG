@@ -52,7 +52,6 @@ export default function SettingsPage() {
           limitCount: 10 
         });
         
-        console.log(logsResponse)
 
         if (logsResponse.code === 777 && logsResponse.data) {
           setLoginLogs(logsResponse.data);
@@ -168,7 +167,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="sm:mt-21 mt-10 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">
+    <div className="sm:mt-10 mt-10 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4">
       <ToastContainer 
         position="top-right" 
         autoClose={7000} 

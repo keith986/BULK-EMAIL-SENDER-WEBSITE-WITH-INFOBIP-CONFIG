@@ -182,7 +182,7 @@ export const uploadRecipientsToFirebase = async ({
   rawText
 }: {
   userId: string, 
-  recipients: Array<{name: string, email: string, username?: string}>, 
+  recipients: Array<{firstName: string, lastName: string, email: string}>, 
   totalCount: number, 
   rawText: string
 }): Promise<{code: number, message: string, added?: number}> => {
@@ -195,17 +195,25 @@ export const uploadRecipientsToFirebase = async ({
     if (!querySnapshot.empty) {
       // User already exists, merge with existing recipients and avoid duplicates
       const existingDoc = querySnapshot.docs[0];
-      const data = existingDoc.data() as { recipients?: Array<{ name?: string; email?: string; username?: string }>; rawText?: string; totalCount?: number };
-      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string; username?: string }> : [];
+      const data = existingDoc.data() as { recipients?: Array<{ firstName?: string; lastName?: string; email?: string; username?: string }>; rawText?: string; totalCount?: number };
+      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ firstName?: string; lastName?: string; email?: string; username?: string }> : [];
 
       // Normalize incoming recipients and remove any without email
-      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ name: r.name ?? '', email: String(r.email).trim(), username: r.username ?? '' })) : [];
+      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ 
+        firstName: r.firstName ?? '', 
+        lastName: r.lastName ?? '', 
+        email: String(r.email).trim() 
+      })) : [];
 
       // Build map of lowercased existing emails
-      const existingMap = new Map<string, { name?: string; email: string; username?: string }>();
+      const existingMap = new Map<string, { firstName?: string; lastName?: string; email: string }>();
       for (const r of existingList) {
         if (!r?.email) continue;
-        existingMap.set(String(r.email).toLowerCase(), { name: r.name, email: String(r.email), username: r.username });
+        existingMap.set(String(r.email).toLowerCase(), { 
+          firstName: r.firstName || '', 
+          lastName: r.lastName || '', 
+          email: String(r.email) 
+        });
       }
 
       // Count new additions and merge
@@ -213,7 +221,11 @@ export const uploadRecipientsToFirebase = async ({
       for (const inc of incoming) {
         const key = inc.email.toLowerCase();
         if (!existingMap.has(key)) {
-          existingMap.set(key, { name: inc.name || '', email: inc.email, username: inc.username || '' });
+          existingMap.set(key, { 
+            firstName: inc.firstName || '', 
+            lastName: inc.lastName || '', 
+            email: inc.email 
+          });
           addedCount++;
         }
       }
@@ -252,7 +264,7 @@ export const uploadRecipientsToFirebase = async ({
 export const fetchRecipientsFromFirebase = async ({userId}: {userId: string}): Promise<{
   code: number, 
   data?: {
-    recipients: Array<{name: string, email: string}>, 
+    recipients: Array<{firstName: string, lastName: string, email: string}>, 
     totalCount: number, 
     rawText: string
   }, 
@@ -340,9 +352,9 @@ export const removeRecipientFromFirebase = async ({ userId, email }: { userId: s
     if (querySnapshot.empty) return { code: 404, message: 'No recipients document found for user.' };
 
     const recipientsDoc = querySnapshot.docs[0];
-    const data = recipientsDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
-    const rawList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
-    const existing: Array<{ name?: string; email: string }> = rawList.filter(r => r.email).map(r => ({ name: r.name, email: r.email! }));
+    const data = recipientsDoc.data() as { recipients?: Array<{ firstName?: string; lastName?: string; email?: string }>; rawText?: string; totalCount?: number };
+    const rawList = Array.isArray(data.recipients) ? data.recipients as Array<{ firstName?: string; lastName?: string; email?: string }> : [];
+    const existing: Array<{ firstName?: string; lastName?: string; email: string }> = rawList.filter(r => r.email).map(r => ({ firstName: r.firstName, lastName: r.lastName, email: r.email! }));
 
     const filtered = existing.filter(r => String(r.email).toLowerCase() !== String(email).toLowerCase());
 
@@ -370,9 +382,9 @@ export const removeRecipientsFromFirebase = async ({ userId, emails }: { userId:
     if (querySnapshot.empty) return { code: 404, message: 'No recipients document found for user.' };
 
     const recipientsDoc = querySnapshot.docs[0];
-    const data = recipientsDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
-    const rawList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
-    const existing: Array<{ name?: string; email: string }> = rawList.filter(r => r.email).map(r => ({ name: r.name, email: r.email! }));
+    const data = recipientsDoc.data() as { recipients?: Array<{ firstName?: string; lastName?: string; email?: string }>; rawText?: string; totalCount?: number };
+    const rawList = Array.isArray(data.recipients) ? data.recipients as Array<{ firstName?: string; lastName?: string; email?: string }> : [];
+    const existing: Array<{ firstName?: string; lastName?: string; email: string }> = rawList.filter(r => r.email).map(r => ({ firstName: r.firstName, lastName: r.lastName, email: r.email! }));
 
     const emailsSet = new Set(emails.map(e => String(e).toLowerCase()));
     const filtered = existing.filter(r => !emailsSet.has(String(r.email).toLowerCase()));
@@ -537,7 +549,6 @@ export const deleteBatchSettingsFromFirebase = async ({userId}: {userId: string}
 }
 
 // Add this function to your firebase-operations.ts file
-
 export async function updateRecipientGroups({ 
   userId, 
   email, 
@@ -564,7 +575,7 @@ export async function updateRecipientGroups({
     // Get the recipients document
     const recipientsDoc = querySnapshot.docs[0];
     const data = recipientsDoc.data() as { 
-      recipients?: Array<{ name?: string; email?: string; groups?: string[] }>;
+      recipients?: Array<{ firstName?: string; lastName?: string; email?: string; groups?: string[] }>;
       rawText?: string;
       totalCount?: number;
     };
@@ -730,7 +741,7 @@ export async function updateMultipleRecipientGroups({
     // Get the recipients document
     const recipientsDoc = querySnapshot.docs[0];
     const data = recipientsDoc.data() as { 
-      recipients?: Array<{ name?: string; email?: string; groups?: string[] }>;
+      recipients?: Array<{ firstName?: string; lastName?: string; email?: string; groups?: string[] }>;
       rawText?: string;
       totalCount?: number;
     };
@@ -1153,7 +1164,7 @@ export const uploadRecipientsToFirebaseWithLimit = async ({
   rawText
 }: {
   userId: string, 
-  recipients: Array<{name: string, email: string}>, 
+  recipients: Array<{firstName: string, lastName: string, email: string}>, 
   totalCount: number, 
   rawText: string
 }): Promise<{code: number, message: string, added?: number}> => {
@@ -1174,22 +1185,34 @@ export const uploadRecipientsToFirebaseWithLimit = async ({
     
     if (!querySnapshot.empty) {
       const existingDoc = querySnapshot.docs[0];
-      const data = existingDoc.data() as { recipients?: Array<{ name?: string; email?: string }>; rawText?: string; totalCount?: number };
-      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ name?: string; email?: string }> : [];
+      const data = existingDoc.data() as { recipients?: Array<{ firstName?: string; lastName?: string; email?: string }>; rawText?: string; totalCount?: number };
+      const existingList = Array.isArray(data.recipients) ? data.recipients as Array<{ firstName?: string; lastName?: string; email?: string }> : [];
 
-      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ name: r.name ?? '', email: String(r.email).trim() })) : [];
+      const incoming = Array.isArray(recipients) ? recipients.filter(r => r && r.email).map(r => ({ 
+        firstName: r.firstName ?? '', 
+        lastName: r.lastName ?? '', 
+        email: String(r.email).trim() 
+      })) : [];
 
-      const existingMap = new Map<string, { name?: string; email: string }>();
+      const existingMap = new Map<string, { firstName?: string; lastName?: string; email: string }>();
       for (const r of existingList) {
         if (!r?.email) continue;
-        existingMap.set(String(r.email).toLowerCase(), { name: r.name, email: String(r.email) });
+        existingMap.set(String(r.email).toLowerCase(), { 
+          firstName: r.firstName || '', 
+          lastName: r.lastName || '', 
+          email: String(r.email) 
+        });
       }
 
       let addedCount = 0;
       for (const inc of incoming) {
         const key = inc.email.toLowerCase();
         if (!existingMap.has(key)) {
-          existingMap.set(key, { name: inc.name || '', email: inc.email });
+          existingMap.set(key, { 
+            firstName: inc.firstName || '', 
+            lastName: inc.lastName || '', 
+            email: inc.email 
+          });
           addedCount++;
         }
       }
@@ -2515,3 +2538,90 @@ export async function deleteOldPayments({
     };
   }
 }
+
+export const checkUserLoginStatus = async ({ 
+  email 
+}: { 
+  email: string 
+}): Promise<{ 
+  code: number; 
+  canLogin: boolean; 
+  message: string;
+  status?: 'active' | 'suspended';
+}> => {
+  try {
+    const userQuery = query(collection(db, COLLECTIONS_CLIENTS), where('email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+    
+    if (userSnapshot.empty) {
+      return { 
+        code: 404, 
+        canLogin: false, 
+        message: 'User not found' 
+      };
+    }
+
+    const userData = userSnapshot.docs[0].data();
+    const status = userData.status || 'active';
+    const loginEnabled = userData.loginEnabled !== false; // Default to true if not set
+    
+    if (status === 'suspended' || !loginEnabled) {
+      return {
+        code: 403,
+        canLogin: false,
+        message: 'Your account has been suspended. Please contact the administrator.',
+        status: 'suspended'
+      };
+    }
+
+    return {
+      code: 777,
+      canLogin: true,
+      message: 'User can login',
+      status: 'active'
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('checkUserLoginStatus error:', error);
+    return { 
+      code: 101, 
+      canLogin: false, 
+      message 
+    };
+  }
+};
+
+export const updateUserLoginStatus = async ({
+  userId,
+  loginEnabled,
+  status
+}: {
+  userId: string;
+  loginEnabled: boolean;
+  status: 'active' | 'suspended';
+}): Promise<{ code: number; message: string }> => {
+  try {
+    const updates: Record<string, unknown> = {
+      status,
+      loginEnabled,
+      updatedAt: serverTimestamp()
+    };
+
+    if (status === 'suspended') {
+      updates.suspendedAt = serverTimestamp();
+    } else {
+      updates.reactivatedAt = serverTimestamp();
+    }
+
+    await updateDoc(doc(db, COLLECTIONS_CLIENTS, userId), updates);
+
+    return {
+      code: 777,
+      message: `User ${status === 'suspended' ? 'suspended' : 'activated'} successfully`
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('updateUserLoginStatus error:', error);
+    return { code: 101, message };
+  }
+};

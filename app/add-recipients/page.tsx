@@ -9,9 +9,9 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../_lib/firebase';
 
 interface Recipient {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  username?: string;
 }
 
 interface UserData {
@@ -73,7 +73,7 @@ export default function AddRecipients() {
   }, [user?.uid]);
 
   // Parse recipients from text
-  // Format: name, email, username OR name, email OR email
+  // Format: firstName, lastName, email OR email
   const parseRecipients = (text: string): Recipient[] => {
     return text
       .split('\n')
@@ -82,11 +82,14 @@ export default function AddRecipients() {
       .map((line: string) => {
         const parts = line.split(',').map(p => p.trim());
         if (parts.length >= 3) {
-          return { name: parts[0], email: parts[1], username: parts[2] };
+          // firstName, lastName, email
+          return { firstName: parts[0], lastName: parts[1], email: parts[2] };
         } else if (parts.length === 2) {
-          return { name: parts[0], email: parts[1], username: '' };
+          // firstName, email (lastName will be empty)
+          return { firstName: parts[0], lastName: '', email: parts[1] };
         }
-        return { name: '', email: parts[0], username: '' };
+        // Just email
+        return { firstName: '', lastName: '', email: parts[0] };
       });
   };
 
@@ -183,7 +186,7 @@ export default function AddRecipients() {
 
   return (
     <Protected>
-      <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64">
+      <div className="sm:mt-1 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64">
         <div className="max-w-4xl mx-auto mt-20">
           <div className="rounded-xl bg-gradient-to-br from-white to-slate-200 p-8">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Manage Recipients</h2>
@@ -254,7 +257,7 @@ export default function AddRecipients() {
                 
                 {/* Format Instructions */}
                 <p className="text-xs text-gray-600 mb-3">
-                  Format: <code className="bg-gray-100 px-2 py-1 rounded">email@example.com</code> OR <code className="bg-gray-100 px-2 py-1 rounded">Name, email@example.com</code> OR <code className="bg-gray-100 px-2 py-1 rounded">Name, email@example.com, username</code> (one per line)
+                  Format: <code className="bg-gray-100 px-2 py-1 rounded">email@example.com</code> OR <code className="bg-gray-100 px-2 py-1 rounded">FirstName, email@example.com</code> OR <code className="bg-gray-100 px-2 py-1 rounded">FirstName, LastName, email@example.com</code> (one per line)
                 </p>
                 
                 {/* Manual Entry Section */}
@@ -267,7 +270,7 @@ export default function AddRecipients() {
                   rows={15}
                   id="recipients"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
-                  placeholder="john@example.com"
+                  placeholder="john@example.com&#10;John, Doe, john.doe@example.com&#10;Jane, jane@example.com"
                 />
                 
                 {/* Total Count Display with Warning */}

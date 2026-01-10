@@ -218,7 +218,7 @@ export async function POST(request: NextRequest) {
       Password: password,
       Timestamp: timestamp,
       TransactionType: 'CustomerPayBillOnline',
-      Amount: 1,
+      Amount: finalAmount,
       PartyA: formattedPhone,
       PartyB: MPESA_SHORTCODE,
       PhoneNumber: formattedPhone,

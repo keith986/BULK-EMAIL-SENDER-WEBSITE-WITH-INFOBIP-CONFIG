@@ -109,7 +109,7 @@ const handleDeleteApiKey = async () => {
 
   return (
     <Protected>
-      <div className="sm:mt-21 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64 mt-5">
+      <div className="sm:mt-1 bg-gradient-to-br from-red-200 to-slate-500 min-h-screen p-4 sm:ml-64 mt-5">
   <div className="max-w-4xl mx-auto mt-20">
     <div className="bg-gradient-to-br from-white to-slate-200 rounded-lg p-8">
       <h2 className="text-2xl font-bold text-gray-800 mb-6">API Configuration</h2>
