@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const snapshot = await getDocs(q);
     if (snapshot.empty) return NextResponse.json({ code: 404, message: 'No API configured for user' }, { status: 404 });
 
-    const apiDoc = snapshot.docs[0].data() as any;
+    const apiDoc = snapshot.docs[0].data();
     if (!apiDoc.apiKey) return NextResponse.json({ code: 404, message: 'No API key configured' }, { status: 404 });
 
     const apiKey = apiDoc.apiKey;
@@ -49,8 +49,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ code: 500, message: 'API test failed: ' + msg }, { status: 500 });
     }
 
-  } catch (error: any) {
-    return NextResponse.json({ code: 500, message: error?.message || 'Unknown error' }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ code: 500, message }, { status: 500 });
   }
 }
 
@@ -63,9 +64,10 @@ export async function GET(request: NextRequest) {
     const q = query(collection(db, 'apikeys'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
     if (snapshot.empty) return NextResponse.json({ code: 404, configured: false });
-    const apiDoc = snapshot.docs[0].data() as any;
+    const apiDoc = snapshot.docs[0].data();
     return NextResponse.json({ code: 777, configured: !!apiDoc.apiKey });
-  } catch (err: any) {
-    return NextResponse.json({ code: 500, message: err?.message || 'Unknown error' }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+  return NextResponse.json({ code: 500, message }, { status: 500 });
   }
 }

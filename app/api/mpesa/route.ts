@@ -1,6 +1,16 @@
 // app/api/mpesa/stkpush/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 
+interface MpesaSTKResponse {
+  ResponseCode?: string;
+  CheckoutRequestID?: string;
+  MerchantRequestID?: string;
+  ResponseDescription?: string;
+  CustomerMessage?: string;
+  errorMessage?: string;
+  errorCode?: string;
+}
+
 // M-Pesa Configuration
 const MPESA_CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY || '';
 const MPESA_CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET || '';
@@ -22,7 +32,7 @@ async function getAccessToken(): Promise<string> {
   const auth = Buffer.from(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`).toString('base64');
   
   let retries = 3;
-  let lastError: any;
+  let lastError: Error | unknown ;
 
   while (retries > 0) {
     let timeoutId: NodeJS.Timeout | null = null;
@@ -72,7 +82,7 @@ async function getAccessToken(): Promise<string> {
     }
   }
 
-  throw new Error(`Failed to get access token after 3 attempts: ${lastError?.message || 'Unknown error'}`);
+  throw new Error(`Failed to get access token after 3 attempts: ${lastError instanceof Error ? lastError.message : 'Unknown error'}`);
 }
 
 // Generate timestamp
@@ -120,11 +130,8 @@ export async function POST(request: NextRequest) {
       amount, 
       accountReference, 
       transactionDesc, 
-      userId, 
-      userEmail, 
-      userName, 
+      userEmail,  
       coins, 
-      packageId, 
       packageInfo 
     } = body;
 
@@ -190,18 +197,19 @@ export async function POST(request: NextRequest) {
     
     try {
       accessToken = await getAccessToken();
-    } catch (error: any) {
-      console.error('❌ Failed to get access token:', error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Unable to connect to M-Pesa. Please try again.',
-          errorCode: 'TOKEN_ERROR',
-          details: error?.message,
-        },
-        { status: 503 }
-      );
-    }
+    } catch (error) {
+  console.error('❌ Failed to get access token:', error);
+  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  return NextResponse.json(
+    {
+      success: false,
+      message: 'Unable to connect to M-Pesa. Please try again.',
+      errorCode: 'TOKEN_ERROR',
+      details: errorMessage,
+    },
+    { status: 503 }
+  );
+  }
 
     // Step 2: Prepare STK Push request
     console.log('Step 2: Preparing STK Push...');
@@ -258,22 +266,23 @@ export async function POST(request: NextRequest) {
 
       console.log('M-Pesa API response status:', mpesaResponse.status);
 
-    } catch (error: any) {
-      if (stkPushTimeoutId) clearTimeout(stkPushTimeoutId);
-      console.error('❌ STK Push request failed:', error);
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Unable to send payment request. Please check your internet connection.',
-          errorCode: 'NETWORK_ERROR',
-          details: error?.message,
-        },
-        { status: 503 }
-      );
-    }
+    } catch (error) {
+  if (stkPushTimeoutId) clearTimeout(stkPushTimeoutId);
+  console.error('❌ STK Push request failed:', error);
+  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  return NextResponse.json(
+    {
+      success: false,
+      message: 'Unable to send payment request. Please check your internet connection.',
+      errorCode: 'NETWORK_ERROR',
+      details: errorMessage,
+    },
+    { status: 503 }
+  );
+  }
 
     // Parse M-Pesa response
-    let mpesaData: any;
+    let mpesaData: MpesaSTKResponse;
     
     try {
       mpesaData = await mpesaResponse.json();
@@ -354,16 +363,16 @@ export async function POST(request: NextRequest) {
       );
     }
     
-  } catch (error: any) {
+  } catch (error) {
     const elapsed = Date.now() - startTime;
     console.error(`❌ STK Push error after ${elapsed}ms:`, error);
-    
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       {
         success: false,
         message: 'Internal server error. Please try again.',
         errorCode: 'SERVER_ERROR',
-        details: error?.message || 'Unknown error',
+        details: message || 'Unknown error',
       },
       { status: 500 }
     );
@@ -521,14 +530,15 @@ export async function GET(request: NextRequest) {
       data: data,
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Status query error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { 
         success: false, 
         message: 'Error checking payment status',
         errorCode: 'QUERY_ERROR',
-        details: error?.message,
+        details: message,
       },
       { status: 500 }
     );

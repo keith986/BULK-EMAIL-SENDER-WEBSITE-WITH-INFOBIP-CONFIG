@@ -2,6 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '../../../_lib/firebase';
 import { doc, updateDoc, query, collection, where, getDocs } from 'firebase/firestore';
 
+interface MpesaCallbackBody {
+  Body?: {
+    stkCallback?: {
+      MerchantRequestID?: string;
+      CheckoutRequestID?: string;
+      ResultCode?: number;
+      ResultDesc?: string;
+      CallbackMetadata?: {
+        Item?: Array<{ Name: string; Value: string | number }>;
+      };
+    };
+  };
+}
+
+interface MpesaCallbackItem {
+  Name: string;
+  Value: string | number;
+}
+
 // Disable timeout for this endpoint
 export const maxDuration = 120; // 120 seconds to handle processing safely
 export const dynamic = 'force-dynamic';
@@ -43,7 +62,7 @@ export async function POST(request: NextRequest) {
 }
 
 // Async function to process callback (non-blocking)
-async function processCallbackAsync(body: any) {
+async function processCallbackAsync(body: MpesaCallbackBody) {
   try {
     console.log('Processing callback data...');
     console.log('Full callback:', JSON.stringify(body, null, 2));
@@ -106,9 +125,9 @@ async function processCallbackAsync(body: any) {
 
       // Extract payment details from callback metadata
       const metadata = CallbackMetadata?.Item || [];
-      const paymentDetails: any = {};
+      const paymentDetails: Record<string, string | number> = {};
 
-      metadata.forEach((item: any) => {
+      metadata.forEach((item: MpesaCallbackItem) => {
         paymentDetails[item.Name] = item.Value;
       });
 

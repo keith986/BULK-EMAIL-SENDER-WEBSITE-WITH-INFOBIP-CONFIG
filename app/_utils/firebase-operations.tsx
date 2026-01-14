@@ -63,6 +63,7 @@ interface ClientLoginLog {
   sessionDuration?: number;
 }
 
+
 export const uploadApiDataToFirebase = async ({userId, apiKey}: {userId: string, apiKey: string}): Promise<{code: number, message: string}> => {
   try {
     // Check if userId already exists
@@ -2114,7 +2115,7 @@ export async function approvePayment({
 
     // Fetch current client data to handle top-ups correctly
     const clientDoc = await getDoc(doc(db, 'clients', userId));
-    const clientData = clientDoc.exists() ? clientDoc.data() as any : {};
+    const clientData = clientDoc.exists() ? clientDoc.data() : {};
 
     const currentTotal = clientData?.totalEmailsAllowed || 0;
     const currentRemaining = clientData?.emailsRemaining || 0;
@@ -2179,7 +2180,7 @@ export async function rejectPayment({
       return { code: 404, message: 'Payment not found' };
     }
 
-    const paymentData: any = paymentDoc.data();
+    const paymentData = paymentDoc.data();
 
     // If payment was completed (coins credited), reverse the coins
     if (paymentData.paymentStatus === 'completed') {
@@ -2205,7 +2206,7 @@ export async function rejectPayment({
           const clientRef = doc(db, 'clients', userId);
           const clientDoc = await getDoc(clientRef);
           if (clientDoc.exists()) {
-            const c = clientDoc.data() as any;
+            const c = clientDoc.data();
             const totalEmailsAllowed = Math.max(0, (c.totalEmailsAllowed || 0) - coinsToRevert);
             const emailsRemaining = Math.max(0, (c.emailsRemaining || 0) - coinsToRevert);
             await updateDoc(clientRef, {

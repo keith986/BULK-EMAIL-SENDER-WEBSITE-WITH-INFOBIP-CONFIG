@@ -30,7 +30,7 @@ export default function ServicesPage() {
               Everything Bulky provides for scaling email campaigns with confidence and reliability.
             </p>
           </header>
-
+ 
           {/* Core Services - 3 Column Grid */}
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-2 mb-12">
             <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border-2 border-blue-100 shadow-lg hover:shadow-2xl transition-all hover:scale-105">

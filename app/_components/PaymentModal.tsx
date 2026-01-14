@@ -21,6 +21,11 @@ interface PaymentModalProps {
 
 type PaymentStatus = 'pending' | 'success' | 'failed' | 'timeout';
 
+interface MpesaCallbackItem {
+  Name: string;
+  Value: string | number;
+}
+
 export default function PaymentModal({
   isOpen,
   onClose,
@@ -192,10 +197,10 @@ export default function PaymentModal({
           try {
             const { updatePaymentStatus } = await import('../_utils/firebase-operations');
             
-            const callbackMetadata = data.data.CallbackMetadata?.Item || [];
-            const mpesaReceiptNumber = callbackMetadata.find((item: any) => item.Name === 'MpesaReceiptNumber')?.Value || '';
-            const transactionDate = callbackMetadata.find((item: any) => item.Name === 'TransactionDate')?.Value || '';
-            const phoneNumber = callbackMetadata.find((item: any) => item.Name === 'PhoneNumber')?.Value || '';
+            const callbackMetadata: MpesaCallbackItem[] = data.data.CallbackMetadata?.Item || [];
+            const mpesaReceiptNumber = callbackMetadata.find((item) => item.Name === 'MpesaReceiptNumber')?.Value?.toString() || '';
+            const transactionDate = callbackMetadata.find((item) => item.Name === 'TransactionDate')?.Value?.toString() || '';
+            const phoneNumber = callbackMetadata.find((item) => item.Name === 'PhoneNumber')?.Value?.toString() || '';
 
             await updatePaymentStatus({
               paymentId: paymentId,

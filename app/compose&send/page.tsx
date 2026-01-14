@@ -2517,7 +2517,7 @@ useEffect(() => {
                 </div>
               </div>
             </div>
-          </div>
+          </div> 
  
         {/* Add Image Modal */}
         {showImageModal && (

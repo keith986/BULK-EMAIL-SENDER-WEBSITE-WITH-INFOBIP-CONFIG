@@ -6,7 +6,10 @@ export interface MergeData {
   name?: string;
   username?: string;
   email: string;
-  [key: string]: any;
+  displayName?: string;
+  firstName?: string;
+  lastName?: string;
+  [key: string]: string | undefined;
 }
 
 /**

@@ -44,7 +44,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ code: 400, message: 'API key not configured for user' }, { status: 400 });
     }
 
-    const apiDoc = apiDocWrap.data as any;
+    const apiDoc = apiDocWrap.data;
 
     const batchDoc = await fetchBatchSettingsForUser(userId);
     const batchSize = batchDoc && batchDoc.batchsize ? parseInt(String(batchDoc.batchsize), 10) : 10;
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
           try {
             const clientDoc = await getDoc(clientRef);
             if (clientDoc.exists()) {
-              const c = clientDoc.data() as any;
+              const c = clientDoc.data();
               const newRemaining = Math.max(0, (c.emailsRemaining || 0) - sentCount);
               await updateDoc(clientRef, { emailsRemaining: newRemaining, updatedAt: new Date().toISOString() });
             }

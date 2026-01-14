@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, Activity, MapPin, Monitor, CheckCircle, AlertCircle,Smartphone, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
+import { Users, Mail, BarChart3, Settings, Search, Trash2, Ban, Shield, MapPin, Monitor, CheckCircle, AlertCircle,Smartphone, Download, RefreshCw, TrendingUp, Clock, TrendingDown, Key, DollarSign, CreditCard, X, Eye, EyeOff } from 'lucide-react';
 import { collection, getDocs, query, where, updateDoc, doc, deleteDoc, setDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../_lib/firebase';
 import AdminProtected  from '../../_components/AdminProtected'
@@ -146,7 +146,20 @@ interface Payment {
   transactionRef: string,
   mpesaPhone: string,
   mpesaCheckoutRequestId: string,
-  rejectionReason: string,
+  rejectionReason?: string,
+  mpesaCompletedAt?: Date,
+  approvedAt?: Date,
+  createdAt?: Date
+}
+
+interface AdminLoginLog {
+  adminEmail: string;
+  ipAddress?: string;
+  userAgent?: string;
+  location?: string;
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified'| 'otp_resent';
+  failureReason?: string;
+  timestamp: Date;
 }
 
 // Toast Notification Component
@@ -202,15 +215,7 @@ export default function AdminDashboard() {
   const [showRequestDetailsModal, setShowRequestDetailsModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
-  const [adminLogs, setAdminLogs] = useState<Array<{
-  adminEmail: string;
-  ipAddress?: string;
-  userAgent?: string;
-  location?: string;
-  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
-  failureReason?: string;
-  timestamp: Date;
-  }>>([]);
+  const [adminLogs, setAdminLogs] = useState<AdminLoginLog[]>([]);
   const [loginStats, setLoginStats] = useState<{
   totalLogins: number;
   successfulLogins: number;
@@ -304,7 +309,7 @@ const loadAdminLogs = async () => {
     
     const logsResult = await fetchAdminLoginLogs({ limitCount: 100 });
     if (logsResult.code === 777 && logsResult.data) {
-      setAdminLogs(logsResult.data);
+    setAdminLogs(logsResult.data);
     }
 
     const statsResult = await getAdminLoginStats();
@@ -651,11 +656,11 @@ const loadPayments = async () => {
       // Filter out cancelled, failed, and zero-coin payments - only show valid pending and completed
       console.log(result.data)
       const filteredPayments = result.data.payments.filter(
-        (p: any) => p.paymentStatus !== 'cancelled' && p.paymentStatus !== 'failed' && (p.coins || 0) > 0
+        (p) => p.paymentStatus !== 'cancelled' && p.paymentStatus !== 'failed' && (p.coins || 0) > 0
       );
       
       // Sort by most recent first
-      const sortedPayments = filteredPayments.sort((a: any, b: any) => {
+      const sortedPayments = filteredPayments.sort((a , b) => {
         const dateA = a.mpesaCompletedAt || a.approvedAt || a.createdAt || 0;
         const dateB = b.mpesaCompletedAt || b.approvedAt || b.createdAt || 0;
         return new Date(dateB).getTime() - new Date(dateA).getTime();
@@ -671,6 +676,7 @@ const loadPayments = async () => {
 };
 
 // Helper to format various Firestore timestamp shapes
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formatPaymentDate = (d: any) => {
   try {
     if (!d) return '-';
@@ -742,7 +748,6 @@ const handleRejectPayment = async (payment: Payment) => {
       showToast('Failed to reject payment: ' + result.message, 'error');
     }
   } catch (error) {
-    console.error('Error rejecting payment:', error);
     showToast('Error rejecting payment', 'error');
   }
 };
@@ -2231,7 +2236,7 @@ async function handleDeleteOldCampaigns() {
               <h4 className="text-sm font-semibold text-yellow-900">Review Required</h4>
               <p className="text-sm text-yellow-800 mt-1">
                 Please verify the transaction reference and payment details before approving. 
-                Once approved, {selectedPayment.coins.toLocaleString()} coins will be immediately credited to the user's account.
+                Once approved, {selectedPayment.coins.toLocaleString()} coins will be immediately credited to the user account.
               </p>
             </div>
           </div>
@@ -2245,7 +2250,7 @@ async function handleDeleteOldCampaigns() {
             <div>
               <h4 className="text-sm font-semibold text-green-900">Payment Approved</h4>
               <p className="text-sm text-green-800 mt-1">
-                This payment has been approved and {selectedPayment.coins.toLocaleString()} coins have been credited to the user's account.
+                This payment has been approved and {selectedPayment.coins.toLocaleString()} coins have been credited to the user account.
               </p>
             </div>
           </div>
@@ -2537,7 +2542,20 @@ async function handleDeleteOldCampaigns() {
           Cancel
         </button>
         <button
-          onClick={handleRejectPayment}
+          onClick={() => {
+           if (selectedRequest) {
+            const paymentData = {
+            id: selectedRequest.id,
+            userId: selectedRequest.userId,
+            userEmail: selectedRequest.userEmail,
+            userName: selectedRequest.userName,
+            amount: selectedRequest.amount,
+            packageInfo: selectedRequest.packageInfo,
+            packageId: selectedRequest.packageId,
+            } as Payment;
+            handleRejectPayment(paymentData);
+           }
+          }}
           className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center gap-2"
         >
           <X className="w-4 h-4" />

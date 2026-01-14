@@ -32,7 +32,7 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
+//  const [otpSent, setOtpSent] = useState(false);
   const { user, signOut } = useUser();
   
   const [locationData, setLocationData] = useState<{
@@ -240,7 +240,7 @@ export default function AdminLogin() {
           setOtpResendTracking(initialTracking);
           localStorage.setItem(`otp_resend_${email}`, JSON.stringify(initialTracking));
           
-          setOtpSent(true);
+         // setOtpSent(true);
           setStep('otp');
           setError('');
         } else {
@@ -425,7 +425,7 @@ export default function AdminLogin() {
           
           await logAdminLogin({
             adminEmail: email,
-            status: 'otp_resent',
+            status: 'otp_sent',
             ...locationData
           });
           

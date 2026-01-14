@@ -21,7 +21,7 @@ export default function DashboardClient() {
         } else {
           setRecipients([]); 
         }
-      })
+      }) 
       .catch(err => console.error('Error fetching recipients:', err.message));
   }, [user?.uid]);
 

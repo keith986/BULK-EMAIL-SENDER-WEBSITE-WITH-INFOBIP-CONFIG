@@ -3,14 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { useUser } from '../_context/UserProvider';
 import { updateClientProfile, fetchClientLoginLogs, getClientLoginStats } from '../_utils/firebase-operations';
 import { toast, ToastContainer } from 'react-toastify';
-import { Lightbulb } from 'lucide-react'
+import { Lightbulb } from 'lucide-react';
 
 interface LoginLog {
   userEmail: string;
   ipAddress?: string;
   userAgent?: string;
   location?: string;
-  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified';
+  status: 'success' | 'failed' | 'otp_sent' | 'otp_verified'| 'otp_resent';
   failureReason?: string;
   timestamp: Date;
 }
@@ -29,19 +29,22 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [loginLogs, setLoginLogs] = useState<LoginLog[]>([]);
   const [loginStats, setLoginStats] = useState<LoginStats | null>(null);
-  const [loadingLogs, setLoadingLogs] = useState<boolean>(true);
-  const [loadingStats, setLoadingStats] = useState<boolean>(true);
+  const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
+  const [loadingStats, setLoadingStats] = useState<boolean>(false);
 
   useEffect(() => {
-    if (user?.displayName) setDisplayName(user.displayName);
+    if (user?.displayName) {
+      setDisplayName(user.displayName);
+    }
   }, [user?.displayName]);
 
   // Fetch login logs and stats
   useEffect(() => {
     const fetchLoginData = async () => {
-      
       if (!user?.email) return;
-      console.log(user.email)
+      
+      console.log(user.email);
+      
       try {
         setLoadingLogs(true);
         setLoadingStats(true);
@@ -51,10 +54,9 @@ export default function SettingsPage() {
           userEmail: user.email,
           limitCount: 10 
         });
-        
 
         if (logsResponse.code === 777 && logsResponse.data) {
-          setLoginLogs(logsResponse.data);
+          setLoginLogs(logsResponse.data as LoginLog[]);
         }
 
         // Fetch login statistics
@@ -67,6 +69,7 @@ export default function SettingsPage() {
         }
       } catch (err) {
         console.error('Error fetching login data:', err);
+        toast.error('Failed to load login data');
       } finally {
         setLoadingLogs(false);
         setLoadingStats(false);
@@ -78,7 +81,10 @@ export default function SettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user?.uid) return toast.error('You must be signed in to update your profile.');
+    if (!user?.uid) {
+      toast.error('You must be signed in to update your profile.');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -123,14 +129,14 @@ export default function SettingsPage() {
   };
 
   const getStatusBadge = (status: string) => {
-    const badges = {
+    const badges: Record<string, string> = {
       success: 'bg-green-100 text-green-700 border-green-200',
       failed: 'bg-red-100 text-red-700 border-red-200',
       otp_sent: 'bg-blue-100 text-blue-700 border-blue-200',
       otp_verified: 'bg-purple-100 text-purple-700 border-purple-200'
     };
     
-    const labels = {
+    const labels: Record<string, string> = {
       success: 'Success',
       failed: 'Failed',
       otp_sent: 'OTP Sent',
@@ -138,8 +144,8 @@ export default function SettingsPage() {
     };
 
     return (
-      <span className={`px-2 py-1 text-xs font-medium rounded-md border ${badges[status as keyof typeof badges] || 'bg-gray-100 text-gray-700'}`}>
-        {labels[status as keyof typeof labels] || status}
+      <span className={`px-2 py-1 text-xs font-medium rounded-md border ${badges[status] || 'bg-gray-100 text-gray-700'}`}>
+        {labels[status] || status}
       </span>
     );
   };
@@ -328,8 +334,8 @@ export default function SettingsPage() {
 
             {loginLogs.length > 0 && (
               <div className="mt-4 pt-4 border-t border-slate-100">
-                <p className="text-xs text-slate-500 text-center flex items-center justify-center gap-1 font-sans">
-                 <Lightbulb className="text-yellow-900"/> If you notice any suspicious activity, please contact us immediately
+                <p className="text-xs text-slate-500 text-center flex items-center justify-center gap-1">
+                  <Lightbulb className="text-yellow-600 w-4 h-4" /> If you notice any suspicious activity, please contact us immediately
                 </p>
               </div>
             )}
